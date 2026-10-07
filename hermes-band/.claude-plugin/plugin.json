@@ -1,0 +1,6 @@
+{
+  "name": "hermes-band",
+  "version": "0.1.0",
+  "description": "A colored band above the prompt: branch, worktree, dirty files that are not this session's, the api/web dev servers with their ports and worktrees, a stop-orphans button, and a /guard button that shows hermes-guard's status.",
+  "types": "./types/index.d.ts"
+}

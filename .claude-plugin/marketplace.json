@@ -1,0 +1,25 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "hermes-mods",
+  "description": "Claude Code mods built for the Hermes project: a status band above the prompt and a house-rules guard.",
+  "owner": {
+    "name": "Andrei Albu",
+    "email": "andrei@nerdcastle.eu"
+  },
+  "plugins": [
+    {
+      "name": "hermes-band",
+      "description": "A colored band above the prompt: branch, worktree, dirty files another session touched, the context window with a hover bar and two limit gauges, the api/web dev servers with a stop-orphans button, and compact / ship / review buttons.",
+      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
+      "source": "./hermes-band",
+      "category": "productivity"
+    },
+    {
+      "name": "hermes-guard",
+      "description": "Hermes house rules as hooks: stage by path, no code commit without a green health gate, hands-off paths behind /guard unlock, no test skips or deletes, no em-dashes in app source, subagents on Sonnet.",
+      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
+      "source": "./hermes-guard",
+      "category": "development"
+    }
+  ]
+}

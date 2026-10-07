@@ -1,0 +1,5 @@
+{
+  "name": "hermes-guard",
+  "version": "0.1.0",
+  "description": "Hermes house rules as hooks: stage by path, no code commit without a green gate, hands-off paths, no test skips, no em-dashes in app source, subagents on Sonnet."
+}
