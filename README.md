@@ -28,7 +28,7 @@ It also sets `model: "sonnet"` on every Agent call without one, and `"opus"` on 
 ## Install
 
 ```bash
-claude plugin marketplace add RedGuyFromHell/hermes-mods
+claude plugin marketplace add RedGuyFromHell/Hermes-band
 claude plugin install hermes-band@hermes-mods
 claude plugin install hermes-guard@hermes-mods
 ```
