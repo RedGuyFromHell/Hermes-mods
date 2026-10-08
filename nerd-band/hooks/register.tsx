@@ -706,6 +706,28 @@ export const register: Register = on => {
 
     return (
       <Box key="band" flexDirection="row" paddingX={1} gap={2}>
+      {/* The button column, on the left: compact, ship and review at the top; refresh and hide anchored to the bottom. */}
+      <Box flexDirection="column" flexShrink={0} alignItems="flex-start" justifyContent="space-between" minHeight={6}>
+        <Box flexDirection="column" alignItems="flex-start" gap={1}>
+          <Button key="compact" hotkey="c" hover={{ color: C.warn, bold: true }} onPress={() => void submit($, 'compact')}>
+            compact
+          </Button>
+          <Button key="ship" hotkey="p" hover={{ color: C.ok, bold: true }} onPress={() => void submit($, 'ship')}>
+            ship
+          </Button>
+          <Button key="review" hotkey="v" hover={{ color: C.branch, bold: true }} onPress={() => void submit($, 'code-review')}>
+            review
+          </Button>
+        </Box>
+        <Box gap={1} marginTop={1}>
+          <Button key="refresh" dimColor hover={{ color: C.tree }} onPress={() => void refreshAll($)}>
+            ↻
+          </Button>
+          <Button key="hide" dimColor hover={{ color: C.bad }} onPress={() => void setHidden($, true)}>
+            ×
+          </Button>
+        </Box>
+      </Box>
       <Box flexDirection="column" flexGrow={1} flexShrink={1}>
         <Box flexDirection="row" flexWrap="wrap" gap={1} alignItems="center">
           {gitChips}
@@ -751,27 +773,6 @@ export const register: Register = on => {
             {note}
           </Text>
         ) : null}
-      </Box>
-      <Box flexDirection="column" flexShrink={0} alignItems="flex-end" justifyContent="space-between" minHeight={6}>
-        <Box flexDirection="column" alignItems="flex-end" gap={1}>
-          <Button key="compact" hotkey="c" hover={{ color: C.warn, bold: true }} onPress={() => void submit($, 'compact')}>
-            compact
-          </Button>
-          <Button key="ship" hotkey="p" hover={{ color: C.ok, bold: true }} onPress={() => void submit($, 'ship')}>
-            ship
-          </Button>
-          <Button key="review" hotkey="v" hover={{ color: C.branch, bold: true }} onPress={() => void submit($, 'code-review')}>
-            review
-          </Button>
-        </Box>
-        <Box gap={1} marginTop={1}>
-          <Button key="refresh" dimColor hover={{ color: C.tree }} onPress={() => void refreshAll($)}>
-            ↻
-          </Button>
-          <Button key="hide" dimColor hover={{ color: C.bad }} onPress={() => void setHidden($, true)}>
-            ×
-          </Button>
-        </Box>
       </Box>
       </Box>
     )
