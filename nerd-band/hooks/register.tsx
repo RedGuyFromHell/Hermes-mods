@@ -1,33 +1,30 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Context, ContextSlice, Limit, Repo, Server } from '../types'
+import type { Context, ContextSlice, Limit, Nested, Repo, Server } from '../types'
 
-const NAME = 'hermes-band'
+const NAME = 'nerd-band'
 
-/** The Nerd Castle knowledge base has its own band (nerd-band): there this one draws nothing and scans nothing. */
-const AWAY = /\/nerd-castle(\/|$)/i
-let away: boolean | null = null
-const isAway = async ($: EngineInterface) => {
-  if (away === null) {
-    try {
-      away = AWAY.test(norm(await $.session.cwd()))
-    } catch {
-      away = false
-    }
-  }
-  return away
-}
+/** The band draws only in the Nerd Castle knowledge base and its worktrees; hermes-band steps aside there. */
+const HOME = /\/nerd-castle(\/|$)/i
+
+/** The repos inside the knowledge base that are committed on their own (CLAUDE.md, Two stations). */
+const NESTED: readonly (readonly [string, string])[] = [
+  ['theme', 'store/Nerd-Castle-Liquid'],
+  ['workbench', 'tools/workbench'],
+  ['etsy', 'tools/etsy-mcp-server'],
+]
 
 /* ---------- state the band draws from ---------- */
 
-const REPO = { plugin: 'hermes-band', key: 'repo' } as const
-const SERVERS = { plugin: 'hermes-band', key: 'servers' } as const
-const MINE = { plugin: 'hermes-band', key: 'mine' } as const
-const CONFIRM = { plugin: 'hermes-band', key: 'confirmStop' } as const
-const HIDDEN = { plugin: 'hermes-band', key: 'hidden' } as const
-const NOTE = { plugin: 'hermes-band', key: 'note' } as const
-const SCANNED = { plugin: 'hermes-band', key: 'scannedAt' } as const
-const CONTEXT = { plugin: 'hermes-band', key: 'context' } as const
+const REPO = { plugin: 'nerd-band', key: 'repo' } as const
+const SERVERS = { plugin: 'nerd-band', key: 'servers' } as const
+const MINE = { plugin: 'nerd-band', key: 'mine' } as const
+const CONFIRM = { plugin: 'nerd-band', key: 'confirmStop' } as const
+const HIDDEN = { plugin: 'nerd-band', key: 'hidden' } as const
+const NOTE = { plugin: 'nerd-band', key: 'note' } as const
+const SCANNED = { plugin: 'nerd-band', key: 'scannedAt' } as const
+const FETCHED = { plugin: 'nerd-band', key: 'fetchedAt' } as const
+const CONTEXT = { plugin: 'nerd-band', key: 'context' } as const
 
 const getContext = async ($: EngineInterface): Promise<Context | null> => (await $.state.get(CONTEXT)).value ?? null
 const getRepo = async ($: EngineInterface): Promise<Repo | null> => (await $.state.get(REPO)).value ?? null
@@ -37,6 +34,7 @@ const getConfirm = async ($: EngineInterface): Promise<boolean> => (await $.stat
 const getHidden = async ($: EngineInterface): Promise<boolean> => (await $.state.get(HIDDEN)).value ?? false
 const getNote = async ($: EngineInterface): Promise<string | null> => (await $.state.get(NOTE)).value ?? null
 const getScanned = async ($: EngineInterface): Promise<number> => (await $.state.get(SCANNED)).value ?? 0
+const getFetched = async ($: EngineInterface): Promise<number> => (await $.state.get(FETCHED)).value ?? 0
 
 const setNote = ($: EngineInterface, note: string | null) => $.state.set(NOTE, note)
 const setConfirm = ($: EngineInterface, on: boolean) => $.state.set(CONFIRM, on)
@@ -50,8 +48,8 @@ const C = {
   ok: '#4ade80',
   warn: '#fbbf24',
   bad: '#f87171',
-  api: '#4ade80',
-  web: '#60a5fa',
+  theme: '#4ade80',
+  video: '#60a5fa',
 }
 
 /* ---------- helpers ---------- */
@@ -61,10 +59,22 @@ const basename = (p: string) => norm(p).replace(/\/+$/, '').split('/').pop() ?? 
 const unquote = (s: string) => s.replace(/^"(.*)"$/, '$1')
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
 
+/** False outside the knowledge base: every hook then passes straight on. */
+let active: boolean | null = null
+const atHome = async ($: EngineInterface): Promise<boolean> => {
+  if (active !== null) return active
+  try {
+    active = HOME.test(norm(await $.session.cwd()))
+    return active
+  } catch {
+    return false
+  }
+}
+
 /** One git command's stdout, trimmed; `raw` keeps the leading spaces a porcelain status line starts with. */
 const git = async ($: EngineInterface, args: readonly string[], cwd: string, raw = false): Promise<string | null> => {
   try {
-    const r = await $.process.run(['git', ...args], { cwd })
+    const r = await $.process.run(['git', ...args], { cwd, env: { GIT_TERMINAL_PROMPT: '0' } })
     if (r.exitCode !== 0) return null
     return raw ? r.stdout.replace(/\s+$/, '') : r.stdout.trim()
   } catch {
@@ -72,7 +82,35 @@ const git = async ($: EngineInterface, args: readonly string[], cwd: string, raw
   }
 }
 
+const dirtyPaths = (status: string) =>
+  status
+    .split('\n')
+    .filter(l => l.length > 3)
+    .map(l => {
+      const path = l.slice(3)
+      const arrow = path.indexOf(' -> ')
+      return unquote(arrow === -1 ? path : path.slice(arrow + 4))
+    })
+
+const aheadBehind = async ($: EngineInterface, cwd: string): Promise<[number | null, number | null]> => {
+  const counts = await git($, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], cwd)
+  if (counts === null) return [null, null]
+  const [a, b] = counts.split(/\s+/).map(n => Number(n))
+  return [a ?? null, b ?? null]
+}
+
 /* ---------- the git scan ---------- */
+
+/** A nested repo, or null when its folder is not its own repo here (a worktree does not check them out). */
+const scanNested = async ($: EngineInterface, root: string, name: string, rel: string): Promise<Nested | null> => {
+  const dir = `${root}/${rel}`
+  const top = await git($, ['rev-parse', '--show-toplevel'], dir)
+  if (top === null || norm(top).toLowerCase() !== dir.toLowerCase()) return null
+  const branch = (await git($, ['rev-parse', '--abbrev-ref', 'HEAD'], dir)) ?? '?'
+  const status = (await git($, ['status', '--porcelain', '--untracked-files=normal'], dir, true)) ?? ''
+  const [ahead, behind] = await aheadBehind($, dir)
+  return { name, branch, ahead, behind, dirty: dirtyPaths(status).length }
+}
 
 const scanRepo = async ($: EngineInterface): Promise<Repo | null> => {
   const cwd = await $.session.cwd()
@@ -82,44 +120,39 @@ const scanRepo = async ($: EngineInterface): Promise<Repo | null> => {
   const branch = (await git($, ['rev-parse', '--abbrev-ref', 'HEAD'], cwd)) ?? '?'
   const head = (await git($, ['rev-parse', '--short', 'HEAD'], cwd)) ?? ''
   const common = await git($, ['rev-parse', '--git-common-dir'], cwd)
-  const tree = common === null || common === '.git' ? null : basename(root)
+  const mainTree = common === null || common === '.git' || norm(common).toLowerCase() === `${root}/.git`.toLowerCase()
   const status = (await git($, ['status', '--porcelain', '--untracked-files=normal'], cwd, true)) ?? ''
-  const dirty = status
-    .split('\n')
-    .filter(l => l.length > 3)
-    .map(l => {
-      const path = l.slice(3)
-      const arrow = path.indexOf(' -> ')
-      return unquote(arrow === -1 ? path : path.slice(arrow + 4))
-    })
-  const counts = await git($, ['rev-list', '--left-right', '--count', 'HEAD...@{upstream}'], cwd)
-  const [a, b] = counts === null ? [null, null] : counts.split(/\s+/).map(n => Number(n))
-  return { root, branch, head, tree, ahead: a ?? null, behind: b ?? null, dirty }
+  const [ahead, behind] = await aheadBehind($, cwd)
+  const nested = (await Promise.all(NESTED.map(([name, rel]) => scanNested($, root, name, rel)))).filter((n): n is Nested => n !== null)
+  return { root, branch, head, tree: mainTree ? null : basename(root), ahead, behind, dirty: dirtyPaths(status), nested }
 }
 
 /* ---------- the server scan (Windows) ---------- */
 
 /**
- * Finds every Hermes api (the tsx child that listens) and web (vite) node
- * process, its ports, the worktree it runs from (the `cd` in the shell that
- * started it, or an absolute node_modules path in its command line), and
- * whether it is an orphan: the chain of parents ends in a shell or node
- * process whose own parent is gone, so the session that started it is gone.
+ * Finds every `shopify theme dev` and `hyperframes preview` node process, its
+ * ports, the folder it runs from (the `cd` in the shell that started it, or an
+ * absolute node_modules path in its command line), and whether it is an
+ * orphan: the chain of parents ends in a shell or node process whose own
+ * parent is gone, so the session that started it is gone. A node launcher
+ * above it (npx, the shopify bin) joins its kill list.
  */
-const SCAN = `
+const SCAN = String.raw`
 $ErrorActionPreference = 'SilentlyContinue'
+function KindOf([string]$c) {
+  if ($c -match '@shopify[\\/]' -and $c -match '\btheme\s+dev\b') { return 'theme' }
+  if ($c -match 'hyperframes' -and $c -match '\bpreview\b') { return 'video' }
+  return $null
+}
 $procs = Get-CimInstance Win32_Process
 $byId = @{}
 foreach ($p in $procs) { $byId[[int]$p.ProcessId] = $p }
 $listen = @(Get-NetTCPConnection -State Listen)
-$shells = '^(bash|sh|pwsh|powershell|cmd|node)\\.exe$'
+$shells = '^(bash|sh|pwsh|powershell|cmd|node)\.exe$'
 $out = New-Object System.Collections.ArrayList
 foreach ($p in $procs) {
   if ($p.Name -ne 'node.exe') { continue }
-  $cl = [string]$p.CommandLine
-  $kind = $null
-  if ($cl -match 'apps[\\\\/]api[\\\\/]src[\\\\/]index\\.ts' -and $cl -match 'tsx[\\\\/]dist[\\\\/](loader\\.mjs|preflight\\.cjs)') { $kind = 'api' }
-  elseif ($cl -match 'vite[\\\\/]bin[\\\\/]vite\\.js') { $kind = 'web' }
+  $kind = KindOf ([string]$p.CommandLine)
   if ($null -eq $kind) { continue }
   $ports = @($listen | Where-Object { $_.OwningProcess -eq $p.ProcessId } | ForEach-Object { [int]$_.LocalPort } | Sort-Object -Unique)
   $kill = New-Object System.Collections.ArrayList
@@ -130,13 +163,13 @@ foreach ($p in $procs) {
   for ($i = 0; $i -lt 12; $i++) {
     $c = [string]$cur.CommandLine
     if ($null -eq $tree) {
-      if ($c -match 'cd /([a-zA-Z])/([^ &;\\x27\\x22]+)') { $tree = $Matches[1].ToUpper() + ':/' + $Matches[2] }
-      elseif ($c -match '([A-Za-z]:[\\\\/][^ \\x22]+?)[\\\\/]node_modules[\\\\/]') { $tree = $Matches[1] -replace '\\\\', '/' }
+      if ($c -match 'cd /([a-zA-Z])/([^ &;\x27\x22]+)') { $tree = $Matches[1].ToUpper() + ':/' + $Matches[2] }
+      elseif ($c -match 'cd \x22?([A-Za-z]:[\\/][^&;\x27\x22]+?)\x22?\s*(&&|;)') { $tree = $Matches[1] -replace '\\', '/' }
     }
     $par = $byId[[int]$cur.ParentProcessId]
     if ($null -eq $par) { break }
     if ($par.CreationDate -and $cur.CreationDate -and $par.CreationDate -gt $cur.CreationDate) { break }
-    if ($par.Name -eq 'node.exe' -and ([string]$par.CommandLine) -match 'tsx[\\\\/]dist[\\\\/]cli\\.mjs') { [void]$kill.Add([int]$par.ProcessId) }
+    if ($par.Name -eq 'node.exe' -and (KindOf ([string]$par.CommandLine)) -eq $kind) { [void]$kill.Add([int]$par.ProcessId) }
     $cur = $par
     $top = $par
   }
@@ -147,15 +180,14 @@ ConvertTo-Json -InputObject @($out) -Compress -Depth 4
 `
 
 const isServer = (v: unknown): v is Server =>
-  typeof v === 'object' && v !== null && typeof (v as Server).pid === 'number' && ((v as Server).kind === 'api' || (v as Server).kind === 'web')
+  typeof v === 'object' && v !== null && typeof (v as Server).pid === 'number' && ((v as Server).kind === 'theme' || (v as Server).kind === 'video')
 
 const scanServers = async ($: EngineInterface): Promise<Server[]> => {
   const r = await $.process.run(['powershell', '-NoProfile', '-NonInteractive', '-Command', SCAN], { timeoutMs: 30000 })
   const text = r.stdout.trim()
   if (r.exitCode !== 0 || text === '') return []
   const parsed: unknown = JSON.parse(text)
-  const list = Array.isArray(parsed) ? parsed : [parsed]
-  return list.filter(isServer).map(s => ({
+  const list = (Array.isArray(parsed) ? parsed : [parsed]).filter(isServer).map(s => ({
     pid: s.pid,
     kind: s.kind,
     ports: Array.isArray(s.ports) ? s.ports : [],
@@ -163,12 +195,16 @@ const scanServers = async ($: EngineInterface): Promise<Server[]> => {
     orphan: s.orphan === true,
     kill: Array.isArray(s.kill) ? s.kill : [s.pid],
   }))
+  /* A launcher (npx, the shopify bin) matches too: keep only the process at the bottom of each chain. */
+  const launchers = new Set(list.flatMap(s => s.kill.filter(pid => pid !== s.pid)))
+  return list.filter(s => !launchers.has(s.pid))
 }
 
 /* ---------- refreshes ---------- */
 
 let repoBusy = false
 let serversBusy = false
+let fetchBusy = false
 
 const refreshRepo = async ($: EngineInterface) => {
   if (repoBusy) return
@@ -192,6 +228,26 @@ const refreshServers = async ($: EngineInterface) => {
     await setNote($, `server scan failed: ${message(err)}`)
   } finally {
     serversBusy = false
+  }
+}
+
+/**
+ * Fetches the knowledge base and each nested repo, so ↓ counts what the other
+ * station (or the Shopify GitHub bot, for the theme) pushed. A fetch moves no
+ * working file; a failure (offline, no credentials) stays quiet.
+ */
+const refreshFetch = async ($: EngineInterface) => {
+  if (fetchBusy) return
+  fetchBusy = true
+  try {
+    const repo = await getRepo($)
+    if (repo === null) return
+    const dirs = [repo.root, ...NESTED.filter(([name]) => repo.nested.some(n => n.name === name)).map(([, rel]) => `${repo.root}/${rel}`)]
+    await Promise.all(dirs.map(d => git($, ['fetch', '--quiet', '--no-tags'], d)))
+    await $.state.set(FETCHED, Date.now())
+    await refreshRepo($)
+  } finally {
+    fetchBusy = false
   }
 }
 
@@ -294,6 +350,9 @@ const shortName = (name: string) =>
     .replace(/^autocompact buffer$/, 'buffer')
     .replace(/^free space$/, 'free')
 
+/** The worktree a server runs from, when it is one; nothing for the main tree. */
+const serverTree = (s: Server) => /\/\.claude\/worktrees\/([^/]+)/i.exec(s.tree ?? '')?.[1] ?? null
+
 const stopOrphans = async ($: EngineInterface) => {
   const servers = await getServers($)
   const pids = [...new Set(servers.filter(s => s.orphan).flatMap(s => s.kill))]
@@ -311,6 +370,24 @@ const stopOrphans = async ($: EngineInterface) => {
     await setNote($, `stop failed: ${message(err)}`)
   }
   await refreshServers($)
+}
+
+/** Pulls the knowledge base, fast-forward only: it never merges, so a pull that would need one stops and says so. */
+const pull = async ($: EngineInterface) => {
+  const repo = await getRepo($)
+  if (repo === null) return
+  try {
+    const r = await $.process.run(['git', 'pull', '--ff-only', '--quiet'], { cwd: repo.root, env: { GIT_TERMINAL_PROMPT: '0' }, timeoutMs: 60000 })
+    if (r.exitCode === 0) {
+      $.ui.toast(`${NAME}: pulled ${repo.behind ?? 0} commit${repo.behind === 1 ? '' : 's'}`)
+      await setNote($, `pulled ${repo.branch}`)
+    } else {
+      await setNote($, `pull stopped: ${r.stderr.trim().split('\n')[0] ?? 'unknown error'}`)
+    }
+  } catch (err) {
+    await setNote($, `pull failed: ${message(err)}`)
+  }
+  await refreshRepo($)
 }
 
 /* ---------- the action buttons ---------- */
@@ -336,10 +413,10 @@ const noteMine = async ($: EngineInterface, file: string) => {
   if (!mine.includes(key)) await $.state.set(MINE, [...mine, key])
 }
 
-/** After a shell command: a git command may have moved the tree, a server command may have started or stopped one. */
+/** After a shell command: a git command may have moved a tree, a server command may have started or stopped one. */
 const afterShell = async ($: EngineInterface, cmd: string) => {
   if (/\bgit\b/.test(cmd)) await refreshRepo($)
-  if (/vite|index\.ts|Stop-Process|taskkill|\bkill\b|launch/.test(cmd)) {
+  if (/theme\s+dev|hyperframes|Stop-Process|taskkill|\bkill\b/.test(cmd)) {
     try {
       $.clock.after(1500, () => void refreshServers($))
     } catch {}
@@ -350,91 +427,96 @@ const afterShell = async ($: EngineInterface, cmd: string) => {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
-    away = null
-    if (await isAway($)) return next(e)
+    active = null
+    if (!(await atHome($))) return next(e)
     await $.command.register({
-      name: 'band',
-      description: 'hermes-band: show, hide or refresh the band above the prompt; forget clears the list of files this session edited',
-      argumentHint: 'show|hide|refresh|forget',
+      name: 'castle',
+      description: 'nerd-band: show, hide or refresh the band above the prompt; fetch checks GitHub now; forget clears the list of files this session edited',
+      argumentHint: 'show|hide|refresh|fetch|forget',
     })
     await refreshRepo($)
     await refreshContext($)
     try {
       $.clock.after(50, () => void refreshServers($))
+      $.clock.after(3_000, () => void refreshFetch($))
       $.clock.every(15_000, () => void refreshRepo($))
       $.clock.every(30_000, () => void refreshContext($))
       $.clock.every(45_000, () => void refreshServers($))
+      $.clock.every(600_000, () => void refreshFetch($))
     } catch {}
     return next(e)
   })
 
-  on('command.run', { command: 'band' }, async ($, e) => {
+  on('command.run', { command: 'castle' }, async ($, e) => {
     const arg = e.args.trim()
     if (arg === 'hide') {
       await setHidden($, true)
-      return { text: 'hermes-band: hidden. /band show brings it back.' }
+      return { text: 'nerd-band: hidden. /castle show brings it back.' }
     }
     if (arg === 'show') {
       await setHidden($, false)
-      return { text: 'hermes-band: shown.' }
+      return { text: 'nerd-band: shown.' }
     }
     if (arg === 'forget') {
       await $.state.set(MINE, [])
-      return { text: 'hermes-band: the list of files this session edited is empty again.' }
+      return { text: 'nerd-band: the list of files this session edited is empty again.' }
     }
+    if (arg === 'fetch') await refreshFetch($)
     await refreshAll($)
     const repo = await getRepo($)
     const servers = await getServers($)
     const lines = [
-      repo === null ? 'no git tree' : `${repo.branch} @ ${repo.head} on ${repo.tree ?? 'the main tree'} (${repo.dirty.length} dirty)`,
-      servers.length === 0 ? 'no api or web dev server is running' : servers.map(s => `${s.kind} :${s.ports.join('/') || '?'} ${s.tree ?? '?'}${s.orphan ? ' ORPHAN' : ''}`).join('\n'),
+      repo === null ? 'no git tree' : `${repo.branch} @ ${repo.head} on ${repo.tree ?? 'the main tree'} (${repo.dirty.length} dirty, ${repo.behind ?? '?'} behind)`,
+      ...(repo?.nested ?? []).map(n => `${n.name}: ${n.branch} (${n.dirty} dirty, ${n.behind ?? '?'} behind)`),
+      servers.length === 0 ? 'no theme or video dev server is running' : servers.map(s => `${s.kind} :${s.ports.join('/') || '?'} ${s.tree ?? '?'}${s.orphan ? ' ORPHAN' : ''}`).join('\n'),
     ]
     return { text: lines.join('\n') }
   })
 
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     const ran = await next(e)
-    if (!(await isAway($)) && ran.deny === undefined && ran.isError === undefined) await noteMine($, e.file_path)
+    if ((await atHome($)) && ran.deny === undefined && ran.isError === undefined) await noteMine($, e.file_path)
     return ran
   })
 
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const ran = await next(e)
-    if (!(await isAway($)) && ran.deny === undefined && ran.isError === undefined) await noteMine($, e.file_path)
+    if ((await atHome($)) && ran.deny === undefined && ran.isError === undefined) await noteMine($, e.file_path)
     return ran
   })
 
   on('tool.call', { tool: 'NotebookEdit' }, async ($, e, next) => {
     const ran = await next(e)
-    if (!(await isAway($)) && ran.deny === undefined && ran.isError === undefined) await noteMine($, e.notebook_path)
+    if ((await atHome($)) && ran.deny === undefined && ran.isError === undefined) await noteMine($, e.notebook_path)
     return ran
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const ran = await next(e)
-    if (!(await isAway($))) await afterShell($, e.command)
+    if (await atHome($)) await afterShell($, e.command)
     return ran
   })
 
   on('tool.call', { tool: 'PowerShell' }, async ($, e, next) => {
     const ran = await next(e)
-    if (!(await isAway($))) await afterShell($, e.command)
+    if (await atHome($)) await afterShell($, e.command)
     return ran
   })
 
   on('turn.complete', async ($, e, next) => {
-    if (!(await isAway($))) await Promise.all([refreshRepo($), refreshContext($)])
+    if (await atHome($)) await Promise.all([refreshRepo($), refreshContext($)])
     return next(e)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if ((await isAway($)) || e.props.hasSurvey || (await getHidden($))) return next(e)
+    if (!(await atHome($)) || e.props.hasSurvey || (await getHidden($))) return next(e)
     const repo = await getRepo($)
     const servers = await getServers($)
     const mine = new Set(await getMine($))
     const confirm = await getConfirm($)
     const note = await getNote($)
     const scannedAt = await getScanned($)
+    const fetchedAt = await getFetched($)
     const context = await getContext($)
     const { Box, Text, Button } = $.ui.resolve(e)
 
@@ -539,6 +621,7 @@ export const register: Register = on => {
     const others = repo === null ? [] : repo.dirty.filter(p => !mine.has(p.toLowerCase()))
     const mineCount = repo === null ? 0 : repo.dirty.length - others.length
     const orphans = servers.filter(s => s.orphan)
+    const behind = repo?.behind ?? 0
     const dot = <Text dimColor> · </Text>
 
     const gitChips =
@@ -555,7 +638,7 @@ export const register: Register = on => {
           {repo.ahead !== null && repo.behind !== null ? (
             <Text>
               {dot}
-              <Text color={repo.behind > 0 ? C.warn : C.ok}>
+              <Text color={repo.behind > 0 ? C.warn : C.ok} bold={repo.behind > 0}>
                 ↑{repo.ahead} ↓{repo.behind}
               </Text>
             </Text>
@@ -582,16 +665,42 @@ export const register: Register = on => {
         <Text dimColor>{scannedAt === 0 ? 'scanning servers…' : 'no dev servers'}</Text>
       ) : (
         <Text>
-          {servers.map((s, i) => (
-            <Text key={`s${s.pid}`}>
-              {i > 0 ? dot : null}
-              <Text color={s.orphan ? C.bad : s.kind === 'api' ? C.api : C.web} bold={s.orphan}>
-                {s.orphan ? '☠ ' : '● '}
-                {s.kind} :{s.ports.join('/') || '?'}
+          {servers.map((s, i) => {
+            const tree = serverTree(s)
+            return (
+              <Text key={`s${s.pid}`}>
+                {i > 0 ? dot : null}
+                <Text color={s.orphan ? C.bad : s.kind === 'theme' ? C.theme : C.video} bold={s.orphan}>
+                  {s.orphan ? '☠ ' : '● '}
+                  {s.kind} :{s.ports.join('/') || '?'}
+                </Text>
+                {tree !== null ? <Text dimColor> {tree}</Text> : null}
               </Text>
-              <Text dimColor> {s.tree === null ? '?' : basename(s.tree)}</Text>
+            )
+          })}
+        </Text>
+      )
+
+    /* The nested repos: theme, workbench, etsy. A clean, level repo is a quiet green tick. */
+    const nestedRow =
+      repo === null || repo.nested.length === 0 ? null : (
+        <Text wrap="truncate-end">
+          {repo.nested.map((n, i) => (
+            <Text key={`n-${n.name}`}>
+              {i > 0 ? dot : null}
+              <Text dimColor>{n.name} </Text>
+              <Text color={C.branch}>{n.branch}</Text>
+              {n.behind !== null && n.behind > 0 ? (
+                <Text color={C.warn} bold>
+                  {' '}
+                  ↓{n.behind}
+                </Text>
+              ) : null}
+              {n.ahead !== null && n.ahead > 0 ? <Text color={C.warn}> ↑{n.ahead}</Text> : null}
+              {n.dirty > 0 ? <Text color={C.warn}> ✎ {n.dirty}</Text> : <Text color={C.ok}> ✓</Text>}
             </Text>
           ))}
+          {fetchedAt === 0 ? <Text dimColor> · not fetched yet</Text> : null}
         </Text>
       )
 
@@ -600,6 +709,11 @@ export const register: Register = on => {
       <Box flexDirection="column" flexGrow={1} flexShrink={1}>
         <Box flexDirection="row" flexWrap="wrap" gap={1} alignItems="center">
           {gitChips}
+          {behind > 0 ? (
+            <Button key="pull" hotkey="l" hover={{ color: C.warn, bold: true }} onPress={() => void pull($)}>
+              {`pull ↓${behind}`}
+            </Button>
+          ) : null}
           <Text dimColor>│</Text>
           {serverChips}
           {orphans.length > 0 ? (
@@ -622,6 +736,7 @@ export const register: Register = on => {
             )
           ) : null}
         </Box>
+        {nestedRow}
         {contextRow}
         {others.length > 0 ? (
           <Text color={C.bad} wrap="truncate-end">
@@ -645,7 +760,7 @@ export const register: Register = on => {
           <Button key="ship" hotkey="p" hover={{ color: C.ok, bold: true }} onPress={() => void submit($, 'ship')}>
             ship
           </Button>
-          <Button key="review" hotkey="v" hover={{ color: C.branch, bold: true }} onPress={() => void submit($, 'clean-code-review')}>
+          <Button key="review" hotkey="v" hover={{ color: C.branch, bold: true }} onPress={() => void submit($, 'code-review')}>
             review
           </Button>
         </Box>

@@ -20,6 +20,13 @@
       "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
       "source": "./hermes-guard",
       "category": "development"
+    },
+    {
+      "name": "nerd-band",
+      "description": "hermes-band for the Nerd Castle knowledge base: branch, worktree, files that are not this session's, the theme / workbench / etsy repos, a pull button when the other station pushed, the theme dev and video preview servers, and the context window.",
+      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
+      "source": "./nerd-band",
+      "category": "productivity"
     }
   ]
 }

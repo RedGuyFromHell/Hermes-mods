@@ -230,3 +230,24 @@ test('the band yields to a survey: it draws nothing, so the engine draws', async
   }
   expect(passedOn).toBe(true)
 })
+
+test('in the Nerd Castle knowledge base the band steps aside for nerd-band and runs no git scan', async ($, on) => {
+  const runs: string[] = []
+  on('session.cwd', () => ({ value: 'D:/Projects/NERD-CASTLE/.claude/worktrees/x' }))
+  on('session.usage', () => ({ value: USAGE as never }))
+  on('process.run', (_$, e) => {
+    runs.push(e.argv.join(' '))
+    return ok('')
+  })
+  on('tool.call', { tool: 'Bash' }, () => ({ result: {} as never }))
+  await $.tool.call({ tool: 'Bash', command: 'git status' })
+  let passedOn = false
+  try {
+    const ui = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
+    await ui.unmount()
+  } catch (err) {
+    passedOn = /no implementation for ui.render/.test(String(err))
+  }
+  expect(passedOn).toBe(true)
+  expect(runs).toEqual([])
+})

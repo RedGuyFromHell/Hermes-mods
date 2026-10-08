@@ -1,6 +1,6 @@
 # hermes-mods
 
-Two Claude Code mods (plugins of function hooks) built for the Hermes project. They need Claude Code 2.1.289 or newer.
+Three Claude Code mods (plugins of function hooks): two built for the Hermes project, one for the Nerd Castle knowledge base. They need Claude Code 2.1.289 or newer.
 
 ## hermes-band
 
@@ -12,6 +12,20 @@ A colored band above the prompt:
 - buttons for `/compact`, `/ship` and `/clean-code-review`.
 
 Commands: `/band`, `/band hide|show|refresh|forget`.
+
+In the Nerd Castle knowledge base (any path with a `nerd-castle` folder) it draws nothing and scans nothing: nerd-band takes its place.
+
+## nerd-band
+
+hermes-band, adapted to the Nerd Castle knowledge base (`D:\Projects\NERD-CASTLE` and its worktrees; elsewhere it stays quiet):
+
+- the same git chips, "mine" / "not mine", context bar and limit gauges;
+- a row for the nested repos (theme, workbench, etsy): branch, ahead/behind, dirty count;
+- a `git fetch` every 10 minutes, so ↓ shows what the other station (or the Shopify GitHub bot, for the theme) pushed, and a `pull ↓N` button that pulls fast-forward only;
+- the `shopify theme dev` and `hyperframes preview` servers with their ports, orphans marked, and the two-step "stop orphans" button (Windows only);
+- buttons for `/compact`, `/ship` and `/code-review`.
+
+Commands: `/castle`, `/castle hide|show|refresh|fetch|forget`.
 
 ## hermes-guard
 
@@ -31,6 +45,7 @@ It also sets `model: "sonnet"` on every Agent call without one, and `"opus"` on 
 claude plugin marketplace add RedGuyFromHell/Hermes-mods
 claude plugin install hermes-band@hermes-mods
 claude plugin install hermes-guard@hermes-mods
+claude plugin install nerd-band@hermes-mods
 ```
 
 ## Develop

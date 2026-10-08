@@ -1,0 +1,10 @@
+{
+  "name": "nerd-band",
+  "version": "0.1.0",
+  "description": "hermes-band for the Nerd Castle knowledge base: branch, worktree, files that are not this session's, the theme / workbench / etsy repos, a pull button when the other station pushed, the theme dev and video preview servers, and the context window.",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Andrei Albu",
+    "email": "andrei@nerdcastle.eu"
+  }
+}
