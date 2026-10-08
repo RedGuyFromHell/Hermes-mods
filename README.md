@@ -1,6 +1,6 @@
 # hermes-mods
 
-Three Claude Code mods (plugins of function hooks): two built for the Hermes project, one for the Nerd Castle knowledge base. They need Claude Code 2.1.289 or newer.
+Four Claude Code mods (plugins of function hooks): three built for the Hermes project, one for the Nerd Castle knowledge base. They need Claude Code 2.1.289 or newer.
 
 ## hermes-band
 
@@ -8,12 +8,26 @@ A colored band above the prompt:
 
 - the branch, the short commit, the worktree, ahead/behind, and dirty files split into "mine" (edited by this session) and "not mine" (another session's work);
 - the context window: used of window, the compaction point, a bar whose colors show a card on hover, and two ring gauges for the 5-hour and weekly limits;
+- beside the gauges, hermes-agents' counts (`3 · 2 running · 1 done`, a ring on the desktop) and a button that opens its pane; with hermes-agents not loaded, nothing;
 - the api and web dev servers with their ports and worktrees, orphans marked, and a two-step "stop orphans" button (Windows only: the scan uses PowerShell);
 - buttons for `/compact`, `/ship` and `/clean-code-review`.
 
 Commands: `/band`, `/band hide|show|refresh|forget`.
 
 In the Nerd Castle knowledge base (any path with a `nerd-castle` folder) it draws nothing and scans nothing: nerd-band takes its place.
+
+## hermes-agents
+
+An agents pane, in hermes-band's colors. It opens by itself when the first agent of a session starts.
+
+- one row per agent: its status, name, task, type, model, run time, tool count, and what it is doing now (`reading catalog.md`);
+- `›` on a row shows that agent's task, its last 10 tool calls and its answer;
+- there, a field to send it a message (a message to a finished agent resumes it) and a two-step `stop`;
+- `clear finished` drops the agents that ended.
+
+A mod cannot pause an agent: a hook may hold a tool call for 10 seconds at most. Agents a Workflow starts show by id, as the engine gives them no name.
+
+Commands: `/agents-pane`, `/agents-pane clear`.
 
 ## nerd-band
 
@@ -46,6 +60,7 @@ claude plugin marketplace add RedGuyFromHell/Hermes-mods
 claude plugin install hermes-band@hermes-mods
 claude plugin install hermes-guard@hermes-mods
 claude plugin install nerd-band@hermes-mods
+claude plugin install hermes-agents@hermes-mods
 ```
 
 ## Develop

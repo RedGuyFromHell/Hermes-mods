@@ -15,6 +15,13 @@
       "category": "productivity"
     },
     {
+      "name": "hermes-agents",
+      "description": "An agents pane in hermes-band's colors: every subagent with its name, model, status, run time and what it is doing now; select one to see its last steps and answer, message it or stop it. hermes-band shows its counts beside the limit gauges.",
+      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
+      "source": "./hermes-agents",
+      "category": "productivity"
+    },
+    {
       "name": "hermes-guard",
       "description": "Hermes house rules as hooks: stage by path, no code commit without a green health gate, hands-off paths behind /guard unlock, no test skips or deletes, no em-dashes in app source, subagents on Sonnet.",
       "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
