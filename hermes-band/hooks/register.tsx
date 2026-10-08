@@ -4,6 +4,20 @@ import type { Context, ContextSlice, Limit, Repo, Server } from '../types'
 
 const NAME = 'hermes-band'
 
+/** The Nerd Castle knowledge base has its own band (nerd-band): there this one draws nothing and scans nothing. */
+const AWAY = /\/nerd-castle(\/|$)/i
+let away: boolean | null = null
+const isAway = async ($: EngineInterface) => {
+  if (away === null) {
+    try {
+      away = AWAY.test(norm(await $.session.cwd()))
+    } catch {
+      away = false
+    }
+  }
+  return away
+}
+
 /* ---------- state the band draws from ---------- */
 
 const REPO = { plugin: 'hermes-band', key: 'repo' } as const
@@ -336,6 +350,8 @@ const afterShell = async ($: EngineInterface, cmd: string) => {
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
+    away = null
+    if (await isAway($)) return next(e)
     await $.command.register({
       name: 'band',
       description: 'hermes-band: show, hide or refresh the band above the prompt; forget clears the list of files this session edited',
@@ -378,41 +394,41 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'Edit' }, async ($, e, next) => {
     const ran = await next(e)
-    if (ran.deny === undefined && ran.isError === undefined) await noteMine($, e.file_path)
+    if (!(await isAway($)) && ran.deny === undefined && ran.isError === undefined) await noteMine($, e.file_path)
     return ran
   })
 
   on('tool.call', { tool: 'Write' }, async ($, e, next) => {
     const ran = await next(e)
-    if (ran.deny === undefined && ran.isError === undefined) await noteMine($, e.file_path)
+    if (!(await isAway($)) && ran.deny === undefined && ran.isError === undefined) await noteMine($, e.file_path)
     return ran
   })
 
   on('tool.call', { tool: 'NotebookEdit' }, async ($, e, next) => {
     const ran = await next(e)
-    if (ran.deny === undefined && ran.isError === undefined) await noteMine($, e.notebook_path)
+    if (!(await isAway($)) && ran.deny === undefined && ran.isError === undefined) await noteMine($, e.notebook_path)
     return ran
   })
 
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const ran = await next(e)
-    await afterShell($, e.command)
+    if (!(await isAway($))) await afterShell($, e.command)
     return ran
   })
 
   on('tool.call', { tool: 'PowerShell' }, async ($, e, next) => {
     const ran = await next(e)
-    await afterShell($, e.command)
+    if (!(await isAway($))) await afterShell($, e.command)
     return ran
   })
 
   on('turn.complete', async ($, e, next) => {
-    await Promise.all([refreshRepo($), refreshContext($)])
+    if (!(await isAway($))) await Promise.all([refreshRepo($), refreshContext($)])
     return next(e)
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey || (await getHidden($))) return next(e)
+    if ((await isAway($)) || e.props.hasSurvey || (await getHidden($))) return next(e)
     const repo = await getRepo($)
     const servers = await getServers($)
     const mine = new Set(await getMine($))
