@@ -56,7 +56,7 @@ export type Context = {
   limits: Limit[]
 }
 
-/** hermes-agents' counts, which the band reads (it never writes them): a copy of that mod's `AgentsSummary`. */
+/** The agents chip's counts, which the band derives from savvy-progress's runs. */
 export type AgentsSummary = {
   total: number
   running: number
@@ -66,9 +66,9 @@ export type AgentsSummary = {
 
 declare module 'claude-code' {
   interface PluginState {
-    /** Read only: hermes-agents owns and writes it. Absent when that mod is not loaded. */
-    'hermes-agents': {
-      summary: AgentsSummary
+    /** Read only: savvy-progress owns and writes it. Absent when that mod is not loaded. Only `status` is read here. */
+    'savvy-progress': {
+      agents: { status: 'running' | 'done' | 'failed' }[]
     }
     'hermes-band': {
       repo: Repo | null

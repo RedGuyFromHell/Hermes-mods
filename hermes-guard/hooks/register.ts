@@ -246,6 +246,8 @@ export const register: Register = on => {
 
   on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
     if (e.model !== undefined || e.subagent_type === 'fork') return next(e)
+    // savvy-flow's tiered workers pin their model in the plugin's own agents folder; forcing sonnet would undo the tier.
+    if (e.subagent_type !== undefined && /(^|:)savvy-/.test(e.subagent_type)) return next(e)
     if (e.subagent_type !== undefined && (await pinsOwnModel($, e.subagent_type))) return next(e)
     const model = e.subagent_type === 'Plan' ? 'opus' : 'sonnet'
     $.ui.toast(`${NAME}: Agent (${e.subagent_type ?? 'general-purpose'}) runs on ${model}`)

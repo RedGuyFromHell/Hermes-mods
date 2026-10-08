@@ -57,6 +57,8 @@ const USAGE = {
 
 /** Stands for the host: git answers, the PowerShell scan, Stop-Process, the usage figures. */
 const fakeHost = (on: On, host: Host) => {
+  /* Stands for the engine's own band, beneath every mod: the band draws above what it drew. */
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => $.ui.resolve(e).Text({ children: ['beneath'] }))
   on('session.cwd', () => ({ value: 'D:/Projects/HERMES' }))
   on('session.usage', () => ({ value: USAGE as never }))
   on('process.run', (_$, e) => {
@@ -100,18 +102,18 @@ test('/band forget drops my edits, /band hide empties the band and /band show br
   await $.tool.call({ tool: 'Write', file_path: 'D:/Projects/HERMES/apps/api/src/index.ts', content: 'x' })
   const ui = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
   expect(await ui.find({ text: /1 mine/ })).toBeDefined()
+  /* What the engine drew beneath comes last: the band sits above it. */
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => String(t.text ?? ''))
+  expect(texts.indexOf('beneath')).toBe(texts.length - 1)
   await $.command.run({ command: 'band', args: 'forget', ...typed })
   expect(await ui.find({ text: /1 not mine/ })).toBeDefined()
   await ui.unmount()
   await $.command.run({ command: 'band', args: 'hide', ...typed })
-  let passedOn = false
-  try {
-    const hidden = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
-    await hidden.unmount()
-  } catch (err) {
-    passedOn = /no implementation for ui.render/.test(String(err))
-  }
-  expect(passedOn).toBe(true)
+  /* Hidden, the band passes on: only what the engine drew beneath is there. */
+  const hidden = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
+  expect(await hidden.find({ text: /^beneath$/ })).toBeDefined()
+  expect(await hidden.find({ text: /t129-run-record|not mine/ })).toBeUndefined()
+  await hidden.unmount()
   await $.command.run({ command: 'band', args: 'show', ...typed })
   const shown = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
   expect(await shown.find({ text: /t129-run-record/ })).toBeDefined()
@@ -221,14 +223,10 @@ test('a slash command the session does not know shows its reason under the band'
 test('the band yields to a survey: it draws nothing, so the engine draws', async ($, on) => {
   fakeHost(on, { dirty: '', servers: [], stops: [] })
   await $.command.run({ command: 'band', args: 'refresh', ...typed })
-  let passedOn = false
-  try {
-    const ui = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND, props: { ...BAND.props, hasSurvey: true } })
-    await ui.unmount()
-  } catch (err) {
-    passedOn = /no implementation for ui.render/.test(String(err))
-  }
-  expect(passedOn).toBe(true)
+  const ui = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND, props: { ...BAND.props, hasSurvey: true } })
+  expect(await ui.find({ text: /^beneath$/ })).toBeDefined()
+  expect(await ui.find({ text: /t129-run-record|context/ })).toBeUndefined()
+  await ui.unmount()
 })
 
 test('in the Nerd Castle knowledge base the band steps aside for nerd-band and runs no git scan', async ($, on) => {
@@ -253,11 +251,11 @@ test('in the Nerd Castle knowledge base the band steps aside for nerd-band and r
 })
 
 for (const surface of SURFACES) {
-  test(`the agents chip sits beside the gauges with hermes-agents' counts, and opens its pane (${surface})`, async ($, on) => {
+  test(`the agents chip sits beside the gauges with savvy-progress's counts, and opens its pane (${surface})`, async ($, on) => {
     fakeHost(on, { dirty: '', servers: [], stops: [] })
-    on('state.get', { plugin: 'hermes-agents', key: 'summary' }, () => ({ value: { value: { total: 3, running: 2, done: 1, failed: 0 }, version: 1 } }))
+    on('state.get', { plugin: 'savvy-progress', key: 'agents' }, () => ({ value: { value: [{ status: 'running' }, { status: 'running' }, { status: 'done' }], version: 1 } }))
     const ran: string[] = []
-    on('command.run', { command: 'agents-pane' }, (_$, e) => {
+    on('command.run', { command: 'agents-info' }, (_$, e) => {
       ran.push(e.command)
       return { text: 'opened' }
     })
@@ -273,12 +271,12 @@ for (const surface of SURFACES) {
       expect((await ui.findAll({ type: 'Svg' })).length).toBe(3)
     }
     await ui.press({ key: 'agents-open' })
-    expect(ran).toEqual(['agents-pane'])
+    expect(ran).toEqual(['agents-info'])
     await ui.unmount()
   })
 }
 
-test('without hermes-agents the band draws no agents chip', async ($, on) => {
+test('without savvy-progress the band draws no agents chip', async ($, on) => {
   fakeHost(on, { dirty: '', servers: [], stops: [] })
   await $.command.run({ command: 'band', args: 'refresh', ...typed })
   const ui = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })

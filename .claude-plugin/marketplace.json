@@ -10,28 +10,30 @@
     {
       "name": "hermes-band",
       "description": "A colored band above the prompt: branch, worktree, dirty files another session touched, the context window with a hover bar and two limit gauges, the api/web dev servers with a stop-orphans button, and compact / ship / review buttons.",
-      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
+      "author": {
+        "name": "Andrei Albu",
+        "email": "andrei@nerdcastle.eu"
+      },
       "source": "./hermes-band",
-      "category": "productivity"
-    },
-    {
-      "name": "hermes-agents",
-      "description": "An agents pane in hermes-band's colors: every subagent with its name, model, status, run time and what it is doing now; select one to see its last steps and answer, message it or stop it. hermes-band shows its counts beside the limit gauges.",
-      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
-      "source": "./hermes-agents",
       "category": "productivity"
     },
     {
       "name": "hermes-guard",
       "description": "Hermes house rules as hooks: stage by path, no code commit without a green health gate, hands-off paths behind /guard unlock, no test skips or deletes, no em-dashes in app source, subagents on Sonnet.",
-      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
+      "author": {
+        "name": "Andrei Albu",
+        "email": "andrei@nerdcastle.eu"
+      },
       "source": "./hermes-guard",
       "category": "development"
     },
     {
       "name": "nerd-band",
       "description": "hermes-band for the Nerd Castle knowledge base: branch, worktree, files that are not this session's, the theme / workbench / etsy repos, a pull button when the other station pushed, the theme dev and video preview servers, and the context window.",
-      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
+      "author": {
+        "name": "Andrei Albu",
+        "email": "andrei@nerdcastle.eu"
+      },
       "source": "./nerd-band",
       "category": "productivity"
     }

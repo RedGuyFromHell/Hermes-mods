@@ -1,6 +1,6 @@
 # hermes-mods
 
-Four Claude Code mods (plugins of function hooks): three built for the Hermes project, one for the Nerd Castle knowledge base. They need Claude Code 2.1.289 or newer.
+Claude Code mods (plugins of function hooks): hermes-band and hermes-guard for the Hermes project, nerd-band for the Nerd Castle knowledge base, and the retired hermes-agents. They need Claude Code 2.1.289 or newer.
 
 ## hermes-band
 
@@ -8,7 +8,8 @@ A colored band above the prompt:
 
 - the branch, the short commit, the worktree, ahead/behind, and dirty files split into "mine" (edited by this session) and "not mine" (another session's work);
 - the context window: used of window, the compaction point, a bar whose colors show a card on hover, and two ring gauges for the 5-hour and weekly limits;
-- beside the gauges, hermes-agents' counts (`3 · 2 running · 1 done`, a ring on the desktop) and a button that opens its pane; with hermes-agents not loaded, nothing;
+- beside the gauges, savvy-progress's counts (`3 · 2 running · 1 done`, a ring on the desktop) and a button that opens its agents panel (`/agents-info`); with savvy-progress not loaded, nothing;
+- the band draws above whatever the mods beneath it drew (cache-tax's row), and the savvy-progress bar sits above the band;
 - the api and web dev servers with their ports and worktrees, orphans marked, and a two-step "stop orphans" button (Windows only: the scan uses PowerShell);
 - buttons for `/compact`, `/ship` and `/clean-code-review`.
 
@@ -16,9 +17,11 @@ Commands: `/band`, `/band hide|show|refresh|forget`.
 
 In the Nerd Castle knowledge base (any path with a `nerd-castle` folder) it draws nothing and scans nothing: nerd-band takes its place.
 
-## hermes-agents
+## hermes-agents (retired 2026-10-09)
 
-An agents pane, in hermes-band's colors. It opens by itself when the first agent of a session starts.
+Replaced by the Hermes fork of [savvy-progress](https://github.com/JohnnyVizz/claude-kit), at `D:Projectsclaude-kit` on branch `hermes-theme`: hermes-band's colors, a pixel crab per Hermes named agent (Inspector, Clean Historian, Code Crawler, Coder, Researcher, Test Writer, The Writer, Web Tester, Bug Tracer), each row titled by the agent's name, and hermes-band reads its runs for the agents chip. This folder stays for reference and is no longer loaded.
+
+An agents pane, in hermes-band's colors. It opened by itself when the first agent of a session started.
 
 - one row per agent: its status, name, task, type, model, run time, tool count, and what it is doing now (`reading catalog.md`);
 - `›` on a row shows that agent's task, its last 10 tool calls and its answer;
@@ -51,7 +54,7 @@ Hooks that refuse the mistakes that cost the most:
 - `.skip(` or `.only(` added to a test, or a test file deleted;
 - an em or en dash written into app source.
 
-It also sets `model: "sonnet"` on every Agent call without one, and `"opus"` on Plan agents. A named agent whose `.claude/agents/<name>.md` frontmatter sets its own `model:` (in the project or the user folder) is left alone, so an evaluator's pin holds. Commands: `/guard`, `/guard unlock|lock`.
+It also sets `model: "sonnet"` on every Agent call without one, and `"opus"` on Plan agents. A named agent whose `.claude/agents/<name>.md` frontmatter sets its own `model:` (in the project or the user folder) is left alone, so an evaluator's pin holds, and so is a savvy-flow tier (`savvy-*`): its model is the tier. Commands: `/guard`, `/guard unlock|lock`.
 
 ## Install
 
@@ -60,7 +63,6 @@ claude plugin marketplace add RedGuyFromHell/Hermes-mods
 claude plugin install hermes-band@hermes-mods
 claude plugin install hermes-guard@hermes-mods
 claude plugin install nerd-band@hermes-mods
-claude plugin install hermes-agents@hermes-mods
 ```
 
 ## Develop

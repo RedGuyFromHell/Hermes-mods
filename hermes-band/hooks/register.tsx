@@ -28,8 +28,8 @@ const HIDDEN = { plugin: 'hermes-band', key: 'hidden' } as const
 const NOTE = { plugin: 'hermes-band', key: 'note' } as const
 const SCANNED = { plugin: 'hermes-band', key: 'scannedAt' } as const
 const CONTEXT = { plugin: 'hermes-band', key: 'context' } as const
-/** hermes-agents' counts: read here, written by that mod alone. */
-const AGENTS = { plugin: 'hermes-agents', key: 'summary' } as const
+/** savvy-progress's runs: read here, written by that mod alone. */
+const AGENTS = { plugin: 'savvy-progress', key: 'agents' } as const
 
 const getContext = async ($: EngineInterface): Promise<Context | null> => (await $.state.get(CONTEXT)).value ?? null
 const getRepo = async ($: EngineInterface): Promise<Repo | null> => (await $.state.get(REPO)).value ?? null
@@ -287,6 +287,14 @@ const ringSvg = (percent: number, color: string) => {
   )
 }
 
+/** savvy-progress's runs, counted the way the ring draws them. */
+const summarize = (runs: readonly { status: string }[]): AgentsSummary => ({
+  total: runs.length,
+  running: runs.filter(r => r.status === 'running').length,
+  done: runs.filter(r => r.status === 'done').length,
+  failed: runs.filter(r => r.status === 'failed').length,
+})
+
 /** The agents ring: one arc per share, running green, done blue, failed red, clockwise from the top. 44 px square, as the limit rings. */
 const agentsRingSvg = (a: AgentsSummary) => {
   const r = 17
@@ -461,6 +469,8 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if ((await isAway($)) || e.props.hasSurvey || (await getHidden($))) return next(e)
+    /* The mods beneath draw first (cache-tax puts its row under them); the band goes above what they drew. */
+    const rest = await next(e)
     const repo = await getRepo($)
     const servers = await getServers($)
     const mine = new Set(await getMine($))
@@ -468,8 +478,9 @@ export const register: Register = on => {
     const note = await getNote($)
     const scannedAt = await getScanned($)
     const context = await getContext($)
-    /* Null when hermes-agents is not loaded: then the band draws no agents chip. */
-    const agents = (await $.state.get(AGENTS)).value ?? null
+    /* Null when savvy-progress is not loaded: then the band draws no agents chip. */
+    const runs = (await $.state.get(AGENTS)).value ?? null
+    const agents = runs === null ? null : summarize(runs)
     const { Box, Text, Button } = $.ui.resolve(e)
 
     /* The context row: a headline, a bar of coloured cells, one legend chip per slice. */
@@ -542,11 +553,11 @@ export const register: Register = on => {
           </Box>
         )
       })
-      /* The agents chip sits beside the gauges, in the room they leave: hermes-agents' counts, and a press opens its pane. */
+      /* The agents chip sits beside the gauges, in the room they leave: savvy-progress's counts, and a press opens its pane. */
       let agentsChip = null
       if (agents !== null) {
         const open = (
-          <Button key="agents-open" plain dimColor hover={{ color: C.tree }} onPress={() => void submit($, 'agents-pane')}>
+          <Button key="agents-open" plain dimColor hover={{ color: C.tree }} onPress={() => void submit($, 'agents-info')}>
             {Svg === null ? '›' : 'open'}
           </Button>
         )
@@ -681,6 +692,7 @@ export const register: Register = on => {
       )
 
     return (
+      <Box flexDirection="column">
       <Box key="band" flexDirection="row" paddingX={1} gap={2}>
       <Box flexDirection="column" flexGrow={1} flexShrink={1}>
         <Box flexDirection="row" flexWrap="wrap" gap={1} alignItems="center">
@@ -743,6 +755,8 @@ export const register: Register = on => {
           </Button>
         </Box>
       </Box>
+      </Box>
+      {rest ?? null}
       </Box>
     )
   })

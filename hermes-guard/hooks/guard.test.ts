@@ -83,7 +83,7 @@ test('a hands-off path is refused until /guard unlock', async ($, on) => {
   expect((await $.tool.call(edit)).deny).toMatch(/hands-off/)
 })
 
-test('an Agent call without a model gets sonnet; Plan gets opus; fork and an explicit model are left alone', async ($, on) => {
+test('an Agent call without a model gets sonnet; Plan gets opus; fork, a savvy tier and an explicit model are left alone', async ($, on) => {
   const seen: Array<string | undefined> = []
   on('tool.call', { tool: 'Agent' }, (_$, e) => {
     seen.push(e.model)
@@ -93,7 +93,8 @@ test('an Agent call without a model gets sonnet; Plan gets opus; fork and an exp
   await $.tool.call({ tool: 'Agent', description: 'plan', prompt: 'plan x', subagent_type: 'Plan' })
   await $.tool.call({ tool: 'Agent', description: 'fork', prompt: 'go', subagent_type: 'fork' })
   await $.tool.call({ tool: 'Agent', description: 'hard', prompt: 'review', model: 'opus' })
-  expect(seen).toEqual(['sonnet', 'opus', undefined, 'opus'])
+  await $.tool.call({ tool: 'Agent', description: 'tier', prompt: 'go', subagent_type: 'savvy-flow:savvy-heavy' })
+  expect(seen).toEqual(['sonnet', 'opus', undefined, 'opus', undefined])
 })
 
 test('a named agent that pins its own model is left alone; one without a pin gets sonnet', async ($, on) => {
