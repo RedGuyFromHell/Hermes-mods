@@ -95,3 +95,25 @@ test('an Agent call without a model gets sonnet; Plan gets opus; fork and an exp
   await $.tool.call({ tool: 'Agent', description: 'hard', prompt: 'review', model: 'opus' })
   expect(seen).toEqual(['sonnet', 'opus', undefined, 'opus'])
 })
+
+test('a named agent that pins its own model is left alone; one without a pin gets sonnet', async ($, on) => {
+  const files: Record<string, string> = {
+    '.claude/agents/the-writer.md': '---\nname: the-writer\nmodel: claude-opus-5-5\ntools: Read\n---\nJudge.',
+    '.claude/agents/plain.md': '---\nname: plain\ndescription: no pin; model: is only in prose\n---\nmodel: opus in the body is not a pin.',
+  }
+  on('env.get', () => ({ value: undefined }))
+  // The engine hands the hook an absolute path, resolved against the working directory.
+  on('fs.read', (_$, e) => {
+    const key = Object.keys(files).find(k => e.path.replace(/\\/g, '/').endsWith(k))
+    return key === undefined ? { deny: 'missing' } : { value: files[key] }
+  })
+  const seen: Array<string | undefined> = []
+  on('tool.call', { tool: 'Agent' }, (_$, e) => {
+    seen.push(e.model)
+    return { result: {} as never }
+  })
+  await $.tool.call({ tool: 'Agent', description: 'judge', prompt: 'grade', subagent_type: 'the-writer' })
+  await $.tool.call({ tool: 'Agent', description: 'plain', prompt: 'go', subagent_type: 'plain' })
+  await $.tool.call({ tool: 'Agent', description: 'none', prompt: 'go', subagent_type: 'not-there' })
+  expect(seen).toEqual([undefined, 'sonnet', 'sonnet'])
+})

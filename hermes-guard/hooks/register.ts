@@ -65,6 +65,30 @@ const repoRoot = async ($: EngineInterface, cwd?: string): Promise<string> => {
   return norm(cwd ?? (await $.session.cwd()))
 }
 
+/**
+ * A named agent whose own frontmatter sets `model:` (an evaluator such as the-writer) keeps it:
+ * adding `model` to the call would override the pin. Looks in the project, then the user folder.
+ */
+const pinsOwnModel = async ($: EngineInterface, agent: string): Promise<boolean> => {
+  if (!/^[\w-]+$/.test(agent)) return false
+  let home: string | undefined
+  try {
+    home = (await $.env.get('USERPROFILE')) ?? (await $.env.get('HOME'))
+  } catch {}
+  const files = [`.claude/agents/${agent}.md`, ...(home ? [`${norm(home)}/.claude/agents/${agent}.md`] : [])]
+  for (const file of files) {
+    let text: string
+    try {
+      text = await $.fs.read(file)
+    } catch {
+      continue
+    }
+    const front = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text)?.[1] ?? ''
+    return /^model:\s*\S/m.test(front)
+  }
+  return false
+}
+
 const lastGreen = async ($: EngineInterface, root: string): Promise<number | undefined> => {
   const v = await $.store.get(greenKey(root))
   return typeof v === 'number' ? v : undefined
@@ -220,8 +244,9 @@ export const register: Register = on => {
     return ran
   })
 
-  on('tool.call', { tool: 'Agent' }, ($, e, next) => {
+  on('tool.call', { tool: 'Agent' }, async ($, e, next) => {
     if (e.model !== undefined || e.subagent_type === 'fork') return next(e)
+    if (e.subagent_type !== undefined && (await pinsOwnModel($, e.subagent_type))) return next(e)
     const model = e.subagent_type === 'Plan' ? 'opus' : 'sonnet'
     $.ui.toast(`${NAME}: Agent (${e.subagent_type ?? 'general-purpose'}) runs on ${model}`)
     return next({ ...e, model })

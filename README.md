@@ -23,7 +23,7 @@ Hooks that refuse the mistakes that cost the most:
 - `.skip(` or `.only(` added to a test, or a test file deleted;
 - an em or en dash written into app source.
 
-It also sets `model: "sonnet"` on every Agent call without one, and `"opus"` on Plan agents. Commands: `/guard`, `/guard unlock|lock`.
+It also sets `model: "sonnet"` on every Agent call without one, and `"opus"` on Plan agents. A named agent whose `.claude/agents/<name>.md` frontmatter sets its own `model:` (in the project or the user folder) is left alone, so an evaluator's pin holds. Commands: `/guard`, `/guard unlock|lock`.
 
 ## Install
 
