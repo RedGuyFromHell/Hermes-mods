@@ -56,8 +56,20 @@ export type Context = {
   limits: Limit[]
 }
 
+/** hermes-agents' counts, which the band reads (it never writes them): a copy of that mod's `AgentsSummary`. */
+export type AgentsSummary = {
+  total: number
+  running: number
+  done: number
+  failed: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
+    /** Read only: hermes-agents owns and writes it. Absent when that mod is not loaded. */
+    'hermes-agents': {
+      summary: AgentsSummary
+    }
     'hermes-band': {
       repo: Repo | null
       servers: Server[]

@@ -251,3 +251,38 @@ test('in the Nerd Castle knowledge base the band steps aside for nerd-band and r
   expect(passedOn).toBe(true)
   expect(runs).toEqual([])
 })
+
+for (const surface of SURFACES) {
+  test(`the agents chip sits beside the gauges with hermes-agents' counts, and opens its pane (${surface})`, async ($, on) => {
+    fakeHost(on, { dirty: '', servers: [], stops: [] })
+    on('state.get', { plugin: 'hermes-agents', key: 'summary' }, () => ({ value: { value: { total: 3, running: 2, done: 1, failed: 0 }, version: 1 } }))
+    const ran: string[] = []
+    on('command.run', { command: 'agents-pane' }, (_$, e) => {
+      ran.push(e.command)
+      return { text: 'opened' }
+    })
+    await $.command.run({ command: 'band', args: 'refresh', ...typed })
+    const ui = await $.ui.mount({ plugin: 'hermes-band', surface, ...BAND })
+    expect(await ui.find({ text: /^2 running$/ })).toBeDefined()
+    expect(await ui.find({ text: /^1 done$/ })).toBeDefined()
+    expect(await ui.find({ text: /failed/ })).toBeUndefined()
+    if (surface === 'terminal') {
+      expect(await ui.find({ text: /^◈ agents $/ })).toBeDefined()
+    } else {
+      expect(await ui.find({ text: /^AGENTS$/ })).toBeDefined()
+      expect((await ui.findAll({ type: 'Svg' })).length).toBe(3)
+    }
+    await ui.press({ key: 'agents-open' })
+    expect(ran).toEqual(['agents-pane'])
+    await ui.unmount()
+  })
+}
+
+test('without hermes-agents the band draws no agents chip', async ($, on) => {
+  fakeHost(on, { dirty: '', servers: [], stops: [] })
+  await $.command.run({ command: 'band', args: 'refresh', ...typed })
+  const ui = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
+  expect(await ui.find({ text: /◈ agents|no agents yet/ })).toBeUndefined()
+  expect(await ui.find({ key: 'agents-open' })).toBeUndefined()
+  await ui.unmount()
+})

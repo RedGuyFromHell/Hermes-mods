@@ -1,6 +1,6 @@
 import type { EngineInterface, Register } from 'claude-code'
 
-import type { Context, ContextSlice, Limit, Repo, Server } from '../types'
+import type { AgentsSummary, Context, ContextSlice, Limit, Repo, Server } from '../types'
 
 const NAME = 'hermes-band'
 
@@ -28,6 +28,8 @@ const HIDDEN = { plugin: 'hermes-band', key: 'hidden' } as const
 const NOTE = { plugin: 'hermes-band', key: 'note' } as const
 const SCANNED = { plugin: 'hermes-band', key: 'scannedAt' } as const
 const CONTEXT = { plugin: 'hermes-band', key: 'context' } as const
+/** hermes-agents' counts: read here, written by that mod alone. */
+const AGENTS = { plugin: 'hermes-agents', key: 'summary' } as const
 
 const getContext = async ($: EngineInterface): Promise<Context | null> => (await $.state.get(CONTEXT)).value ?? null
 const getRepo = async ($: EngineInterface): Promise<Repo | null> => (await $.state.get(REPO)).value ?? null
@@ -285,6 +287,36 @@ const ringSvg = (percent: number, color: string) => {
   )
 }
 
+/** The agents ring: one arc per share, running green, done blue, failed red, clockwise from the top. 44 px square, as the limit rings. */
+const agentsRingSvg = (a: AgentsSummary) => {
+  const r = 17
+  const circ = 2 * Math.PI * r
+  const total = Math.max(1, a.total)
+  let start = 0
+  const arcs = [
+    [a.running, C.ok],
+    [a.done, C.web],
+    [a.failed, C.bad],
+  ] as const
+  const drawn = arcs
+    .filter(([n]) => n > 0)
+    .map(([n, color]) => {
+      const len = (n / total) * circ
+      const arc =
+        `<circle cx="22" cy="22" r="${r}" fill="none" stroke="${color}" stroke-width="6" ` +
+        `stroke-dasharray="${len.toFixed(2)} ${circ.toFixed(2)}" stroke-dashoffset="${(-start).toFixed(2)}" transform="rotate(-90 22 22)"/>`
+      start += len
+      return arc
+    })
+    .join('')
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">` +
+    `<circle cx="22" cy="22" r="${r}" fill="none" stroke="#3a3f4b" stroke-width="6"/>` +
+    drawn +
+    `</svg>`
+  )
+}
+
 const shortName = (name: string) =>
   name
     .toLowerCase()
@@ -436,6 +468,8 @@ export const register: Register = on => {
     const note = await getNote($)
     const scannedAt = await getScanned($)
     const context = await getContext($)
+    /* Null when hermes-agents is not loaded: then the band draws no agents chip. */
+    const agents = (await $.state.get(AGENTS)).value ?? null
     const { Box, Text, Button } = $.ui.resolve(e)
 
     /* The context row: a headline, a bar of coloured cells, one legend chip per slice. */
@@ -508,6 +542,56 @@ export const register: Register = on => {
           </Box>
         )
       })
+      /* The agents chip sits beside the gauges, in the room they leave: hermes-agents' counts, and a press opens its pane. */
+      let agentsChip = null
+      if (agents !== null) {
+        const open = (
+          <Button key="agents-open" plain dimColor hover={{ color: C.tree }} onPress={() => void submit($, 'agents-pane')}>
+            {Svg === null ? '›' : 'open'}
+          </Button>
+        )
+        const counts =
+          agents.total === 0 ? (
+            <Text dimColor>no agents yet</Text>
+          ) : (
+            <Text>
+              <Text bold>{agents.total}</Text>
+              <Text dimColor> · </Text>
+              <Text color={C.ok}>{agents.running} running</Text>
+              <Text dimColor> · </Text>
+              <Text color={C.web}>{agents.done} done</Text>
+              {agents.failed > 0 ? (
+                <Text>
+                  <Text dimColor> · </Text>
+                  <Text color={C.bad} bold>
+                    {agents.failed} failed
+                  </Text>
+                </Text>
+              ) : null}
+            </Text>
+          )
+        agentsChip =
+          Svg === null ? (
+            <Box key="agents" flexDirection="row" gap={1}>
+              <Text>
+                <Text color={agents.running > 0 ? C.ok : C.branch} bold>
+                  ◈ agents{' '}
+                </Text>
+                {counts}
+              </Text>
+              {open}
+            </Box>
+          ) : (
+            <Box key="agents" flexDirection="row" gap={1} alignItems="center">
+              <Svg source={agentsRingSvg(agents)} alt={`agents: ${agents.running} running, ${agents.done} done, ${agents.failed} failed`} width={44} height={44} />
+              <Box flexDirection="column">
+                <Text dimColor>AGENTS</Text>
+                {counts}
+              </Box>
+              {open}
+            </Box>
+          )
+      }
       contextRow = (
         <Box flexDirection="column">
           <Text>
@@ -527,9 +611,10 @@ export const register: Register = on => {
               {'░'.repeat(rest)}
             </Text>
           </Box>
-          {gauges.length > 0 ? (
+          {gauges.length > 0 || agentsChip !== null ? (
             <Box flexDirection="row" gap={3} marginTop={Svg === null ? 0 : 1}>
               {gauges}
+              {agentsChip}
             </Box>
           ) : null}
         </Box>
