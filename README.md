@@ -1,6 +1,6 @@
 # hermes-mods
 
-Claude Code mods (plugins of function hooks): hermes-band and hermes-guard for the Hermes project, nerd-band for the Nerd Castle knowledge base, and the retired hermes-agents. They need Claude Code 2.1.289 or newer.
+Claude Code mods (plugins of function hooks): hermes-band, hermes-guard and diff-follow for the Hermes project, nerd-band for the Nerd Castle knowledge base, and the retired hermes-agents. They need Claude Code 2.1.289 or newer.
 
 ## hermes-band
 

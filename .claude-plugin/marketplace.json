@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "hermes-mods",
-  "description": "Claude Code mods built for the Hermes project: a status band above the prompt and a house-rules guard.",
+  "description": "Claude Code mods built for the Hermes project: a status band above the prompt, a house-rules guard, and a diff pane that follows the filetree selection.",
   "owner": {
     "name": "Andrei Albu",
     "email": "andrei@nerdcastle.eu"
@@ -35,6 +35,16 @@
         "email": "andrei@nerdcastle.eu"
       },
       "source": "./nerd-band",
+      "category": "productivity"
+    },
+    {
+      "name": "diff-follow",
+      "description": "The desktop app diff pane follows the file selected in the filetree pane: click a changed file there and its diff scrolls into view; /difffollow on | off | scope all | scope uncommitted.",
+      "author": {
+        "name": "Andrei Albu",
+        "email": "andrei@nerdcastle.eu"
+      },
+      "source": "./diff-follow",
       "category": "productivity"
     }
   ]

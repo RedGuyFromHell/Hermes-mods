@@ -1,0 +1,10 @@
+{
+  "name": "diff-follow",
+  "version": "0.1.0",
+  "description": "The desktop app's diff pane follows the file selected in the filetree pane: click a changed file there and its diff scrolls into view.",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Andrei Albu",
+    "email": "andrei@nerdcastle.eu"
+  }
+}
