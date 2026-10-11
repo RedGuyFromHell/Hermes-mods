@@ -1,16 +1,11 @@
 import { test, expect } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import type { PrView } from '../types'
 import { ciOf, fixPrompt, isGreen, jobIdOf, parsePr, siblingsOf, statusLines } from './register'
 
-const SURFACES = ['terminal', 'desktop'] as const
-
-const BAND = {
-  component: 'AbovePrompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 14, bodyColumns: 140, scroll: { offset: 0, bodyRows: 13 }, view: {} },
-} as const
-
 const typed = { origin: { kind: 'composer' as const }, presentation: { isFullscreen: false, columns: 140 } }
+
 
 /** PR #344 as `gh pr view --json` printed it on 2026-10-11, its one check refused by Actions billing. */
 const PR_344 = JSON.stringify({
@@ -54,17 +49,22 @@ type Host = {
   behind: string
   conflicts: { code: number; out: string }
   ran: string[]
-  prompts: string[]
+  /** What /pr fix put in the prompt box. */
+  filled: string[]
+  /** Every value hermes-pr wrote, by key: what the band would read. The test `$` has no `$.state` of its own. */
+  state: Record<string, unknown>
 }
 
-/** Stands for the machine: git and gh answer from the host record, every argv is kept. */
+/** Stands for the machine: git and gh answer from the host record, every argv is kept, every state write is seen. */
 const fakeHost = (on: On, host: Host) => {
-  /* Stands for the engine's own band, beneath every mod: the card draws above what it drew. */
-  on('ui.render', { component: 'AbovePrompt' }, ($, e) => $.ui.resolve(e).Text({ children: ['beneath'] }))
   on('session.cwd', () => ({ value: 'D:/Projects/HERMES' }))
-  on('prompt.submit', (_$, e) => {
-    host.prompts.push(e.text)
-    return { text: e.text }
+  on('state.set', { plugin: 'hermes-pr' }, (_$, e, next) => {
+    host.state[e.key] = e.value
+    return next(e)
+  })
+  on('prompt.fill', (_$, e) => {
+    host.filled.push(e.text)
+    return { isFilled: true }
   })
   on('process.run', (_$, e) => {
     const a = e.argv.join(' ')
@@ -84,7 +84,9 @@ const fakeHost = (on: On, host: Host) => {
   })
 }
 
-const host344 = (): Host => ({ branch: 'ship-via-gh', pr: PR_344, behind: '0', conflicts: { code: 0, out: 'Against main (1e61cef3):\n  ok        ship-via-gh\n\nAll clean.\n' }, ran: [], prompts: [] })
+const host344 = (): Host => ({ branch: 'ship-via-gh', pr: PR_344, behind: '0', conflicts: { code: 0, out: 'Against main (1e61cef3):\n  ok        ship-via-gh\n\nAll clean.\n' }, ran: [], filled: [], state: {} })
+
+const prOf = (host: Host) => host.state.pr as PrView | null | undefined
 
 test('the helpers: the PR record, the CI verdict, the job id, the conflict script and the lines', async () => {
   const view = parsePr(PR_344)
@@ -113,10 +115,10 @@ test('the helpers: the PR record, the CI verdict, the job id, the conflict scrip
   view.behind = 0
   view.siblings = { state: 'clean', detail: '' }
   view.ci.reason = BILLING
-  const lines = statusLines(view)
-  expect(lines.length).toBe(5)
-  expect(lines.map(l => l.ok)).toEqual([false, true, true, true, true])
-  expect(lines[0]?.detail).toBe(BILLING)
+  view.lines = statusLines(view)
+  expect(view.lines.length).toBe(5)
+  expect(view.lines.map(l => l.ok)).toEqual([false, true, true, true, true])
+  expect(view.lines[0]?.detail).toBe(BILLING)
   expect(isGreen(view)).toBe(false)
   expect(fixPrompt(view)).toContain('Fix PR #344 (https://github.com/RedGuyFromHell/Hermes/pull/344)')
   expect(fixPrompt(view)).toContain(`- CI failed: check: ${BILLING}`)
@@ -125,121 +127,89 @@ test('the helpers: the PR record, the CI verdict, the job id, the conflict scrip
   if (green === null) return
   green.behind = 0
   green.siblings = { state: 'clean', detail: '' }
+  green.lines = statusLines(green)
   expect(isGreen(green)).toBe(true)
   green.behind = 3
   expect(statusLines(green).find(l => l.ok === false)?.text).toBe('3 behind main')
 })
 
-for (const surface of SURFACES) {
-  test(`the card shows the PR, the five chips with the CI reason, the link and the buttons (${surface})`, async ($, on) => {
-    const host = host344()
-    fakeHost(on, host)
-    const r = await $.command.run({ command: 'pr', args: '', ...typed })
-    expect(r.text).toContain('#344 open, something is red')
-    const ui = await $.ui.mount({ plugin: 'hermes-pr', surface, ...BAND })
-    expect(await ui.find({ text: /#344/ })).toBeDefined()
-    expect(await ui.find({ text: /the Clean Historian opens the PR/ })).toBeDefined()
-    expect(await ui.find({ text: /open on GitHub/ })).toBeDefined()
-    expect(await ui.find({ text: /CI failed: check/ })).toBeDefined()
-    expect(await ui.find({ text: /payments have failed/ })).toBeDefined()
-    expect(await ui.find({ text: /no conflicts with main/ })).toBeDefined()
-    expect(await ui.find({ text: /up to date with main/ })).toBeDefined()
-    expect(await ui.find({ text: /clear of the other open PRs/ })).toBeDefined()
-    expect(await ui.find({ text: /review: none required/ })).toBeDefined()
-    expect(await ui.find({ key: 'merge' })).toBeDefined()
-    expect(await ui.find({ key: 'fix' })).toBeDefined()
-    expect(await ui.find({ key: 'close' })).toBeDefined()
-    expect(await ui.find({ key: 'reload' })).toBeDefined()
-    /* What the engine drew beneath comes last: the card sits above it. */
-    const texts = (await ui.findAll({ type: 'Text' })).map(t => String(t.text ?? ''))
-    expect(texts.indexOf('beneath')).toBe(texts.length - 1)
-    await ui.unmount()
-  })
-}
-
-test('merge asks first, a no changes nothing, a yes runs gh pr merge with a merge commit and the card shows merged', async ($, on) => {
+test('/pr reads the PR into the state the band draws: five lines, the CI reason, behind and the sibling check', async ($, on) => {
   const host = host344()
-  fakeHost(on, host)
-  await $.command.run({ command: 'pr', args: '', ...typed })
-  const ui = await $.ui.mount({ plugin: 'hermes-pr', surface: 'terminal', ...BAND })
-  await ui.press({ key: 'merge' })
-  expect(await ui.find({ text: /merge #344 into main\?/ })).toBeDefined()
-  expect(await ui.find({ text: /1 red line/ })).toBeDefined()
-  await ui.press({ key: 'merge-no' })
-  expect(host.ran.some(a => a.startsWith('gh pr merge'))).toBe(false)
-  expect(await ui.find({ key: 'merge' })).toBeDefined()
-  await ui.press({ key: 'merge' })
-  await ui.press({ key: 'merge-yes' })
-  expect(host.ran).toContain('gh pr merge 344 --merge')
-  expect(await ui.find({ text: /merged #344/ })).toBeDefined()
-  expect(await ui.find({ text: /release with/ })).toBeDefined()
-  expect(await ui.find({ key: 'merge' })).toBeUndefined()
-  await ui.unmount()
-})
-
-test('close asks first and then runs gh pr close; fix PR sends the red lines to the session', async ($, on) => {
-  const host = host344()
-  fakeHost(on, host)
-  await $.command.run({ command: 'pr', args: '', ...typed })
-  const ui = await $.ui.mount({ plugin: 'hermes-pr', surface: 'terminal', ...BAND })
-  await ui.press({ key: 'fix' })
-  expect(host.prompts.length).toBe(1)
-  expect(host.prompts[0]).toContain('Fix PR #344')
-  expect(host.prompts[0]).toContain('CI failed: check')
-  expect(await ui.find({ text: /sent to the session/ })).toBeDefined()
-  await ui.press({ key: 'close' })
-  expect(await ui.find({ text: /close #344\?/ })).toBeDefined()
-  await ui.press({ key: 'close-yes' })
-  expect(host.ran).toContain('gh pr close 344')
-  expect(await ui.find({ text: /closed #344/ })).toBeDefined()
-  await ui.unmount()
-})
-
-test('a green PR has a primary merge button and no fix button; without a PR, or on main, the card draws nothing', async ($, on) => {
-  const host = host344()
-  host.pr = GREEN
   fakeHost(on, host)
   const r = await $.command.run({ command: 'pr', args: '', ...typed })
-  expect(r.text).toContain('all green')
-  const ui = await $.ui.mount({ plugin: 'hermes-pr', surface: 'terminal', ...BAND })
-  expect(await ui.find({ text: /CI green/ })).toBeDefined()
-  expect(await ui.find({ key: 'merge' })).toBeDefined()
-  expect(await ui.find({ key: 'fix' })).toBeUndefined()
-  await ui.unmount()
+  expect(r.text).toContain('#344 open, something is red')
+  const view = prOf(host)
+  expect(view).toBeDefined()
+  if (view === null || view === undefined) return
+  expect(view.number).toBe(344)
+  expect(view.lines.map(l => l.text)).toEqual(['CI failed: check', 'no conflicts with main', 'up to date with main', 'clear of the other open PRs', 'review: none required'])
+  expect(view.lines[0]?.detail).toBe(BILLING)
+  expect(String(host.state.fix)).toContain(`- CI failed: check: ${BILLING}`)
+  expect(host.ran).toContain('git fetch --quiet origin main')
+  expect(host.ran).toContain('node release/pr-conflicts.mjs --no-fetch')
+
+  host.pr = GREEN
+  const green = await $.command.run({ command: 'pr', args: '', ...typed })
+  expect(green.text).toContain('all green')
+  expect(host.state.fix).toBe(null)
 
   host.pr = null
   const none = await $.command.run({ command: 'pr', args: '', ...typed })
   expect(none.text).toContain('no pull request on ship-via-gh')
-  /* No PR: the card passes on, and only what the engine drew beneath is there. */
-  const empty = await $.ui.mount({ plugin: 'hermes-pr', surface: 'terminal', ...BAND })
-  expect(await empty.find({ text: /^beneath$/ })).toBeDefined()
-  expect(await empty.find({ text: /#344|GitHub/ })).toBeUndefined()
-  await empty.unmount()
+  expect(prOf(host)).toBe(null)
 
   host.branch = 'main'
+  const views = host.ran.filter(a => a.startsWith('gh pr view')).length
   await $.command.run({ command: 'pr', args: '', ...typed })
-  const onMain = await $.ui.mount({ plugin: 'hermes-pr', surface: 'terminal', ...BAND })
-  expect(await onMain.find({ text: /#344|GitHub/ })).toBeUndefined()
-  await onMain.unmount()
-  expect(host.ran.filter(a => a.startsWith('gh pr view')).length).toBe(2)
+  expect(host.ran.filter(a => a.startsWith('gh pr view')).length).toBe(views)
 })
 
-test('/pr hide takes the card down and /pr show brings it back', async ($, on) => {
+test('/pr merge runs gh pr merge with a merge commit, /pr close runs gh pr close, and each reads the PR again', async ($, on) => {
   const host = host344()
   fakeHost(on, host)
   await $.command.run({ command: 'pr', args: '', ...typed })
-  await $.command.run({ command: 'pr', args: 'hide', ...typed })
-  const hidden = await $.ui.mount({ plugin: 'hermes-pr', surface: 'terminal', ...BAND })
-  expect(await hidden.find({ text: /^beneath$/ })).toBeDefined()
-  expect(await hidden.find({ text: /#344/ })).toBeUndefined()
-  await hidden.unmount()
-  await $.command.run({ command: 'pr', args: 'show', ...typed })
-  const shown = await $.ui.mount({ plugin: 'hermes-pr', surface: 'terminal', ...BAND })
-  expect(await shown.find({ text: /#344/ })).toBeDefined()
-  await shown.unmount()
+  const merged = await $.command.run({ command: 'pr', args: 'merge', ...typed })
+  expect(host.ran).toContain('gh pr merge 344 --merge')
+  expect(merged.text).toContain('merged #344')
+  expect(merged.text).toContain('release.mjs')
+  expect(prOf(host)?.state).toBe('merged')
+  expect(host.state.note).toBe('merged #344')
+  expect(host.state.fix).toBe(null)
+
+  host.pr = PR_344
+  await $.command.run({ command: 'pr', args: '', ...typed })
+  const closed = await $.command.run({ command: 'pr', args: 'close', ...typed })
+  expect(host.ran).toContain('gh pr close 344')
+  expect(closed.text).toContain('closed #344')
+  expect(prOf(host)?.state).toBe('closed')
 })
 
-test('a git push in the chat makes the card read the PR again', async ($, on) => {
+test('/pr fix puts the red lines in the prompt box as one prompt', async ($, on) => {
+  const host = host344()
+  fakeHost(on, host)
+  await $.command.run({ command: 'pr', args: '', ...typed })
+  const r = await $.command.run({ command: 'pr', args: 'fix', ...typed })
+  expect(r.text).toContain('in the box')
+  expect(host.filled.length).toBe(1)
+  expect(host.filled[0]).toContain('Fix PR #344')
+  expect(host.filled[0]).toContain(`- CI failed: check: ${BILLING}`)
+  host.pr = GREEN
+  await $.command.run({ command: 'pr', args: '', ...typed })
+  const nothing = await $.command.run({ command: 'pr', args: 'fix', ...typed })
+  expect(nothing.text).toContain('nothing is red')
+  expect(host.filled.length).toBe(1)
+})
+
+test('/pr hide and /pr show flip the hidden flag the band reads', async ($, on) => {
+  const host = host344()
+  fakeHost(on, host)
+  await $.command.run({ command: 'pr', args: 'hide', ...typed })
+  expect(host.state.hidden).toBe(true)
+  await $.command.run({ command: 'pr', args: 'show', ...typed })
+  expect(host.state.hidden).toBe(false)
+})
+
+test('a git push in the chat makes hermes-pr read the PR again', async ($, on) => {
   const host = host344()
   fakeHost(on, host)
   on('tool.call', { tool: 'Bash' }, () => ({ result: {} as never }))

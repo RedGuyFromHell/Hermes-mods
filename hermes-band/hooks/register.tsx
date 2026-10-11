@@ -30,6 +30,13 @@ const SCANNED = { plugin: 'hermes-band', key: 'scannedAt' } as const
 const CONTEXT = { plugin: 'hermes-band', key: 'context' } as const
 /** savvy-progress's runs: read here, written by that mod alone. */
 const AGENTS = { plugin: 'savvy-progress', key: 'agents' } as const
+/** hermes-pr's pull request: read here, written by that mod alone; its buttons run /pr there. */
+const PR = { plugin: 'hermes-pr', key: 'pr' } as const
+const PR_FIX = { plugin: 'hermes-pr', key: 'fix' } as const
+const PR_BUSY = { plugin: 'hermes-pr', key: 'busy' } as const
+const PR_NOTE = { plugin: 'hermes-pr', key: 'note' } as const
+const PR_HIDDEN = { plugin: 'hermes-pr', key: 'hidden' } as const
+const CONFIRM_PR = { plugin: 'hermes-band', key: 'confirmPr' } as const
 
 const getContext = async ($: EngineInterface): Promise<Context | null> => (await $.state.get(CONTEXT)).value ?? null
 const getRepo = async ($: EngineInterface): Promise<Repo | null> => (await $.state.get(REPO)).value ?? null
@@ -40,8 +47,11 @@ const getHidden = async ($: EngineInterface): Promise<boolean> => (await $.state
 const getNote = async ($: EngineInterface): Promise<string | null> => (await $.state.get(NOTE)).value ?? null
 const getScanned = async ($: EngineInterface): Promise<number> => (await $.state.get(SCANNED)).value ?? 0
 
+const getConfirmPr = async ($: EngineInterface): Promise<'merge' | 'close' | null> => (await $.state.get(CONFIRM_PR)).value ?? null
+
 const setNote = ($: EngineInterface, note: string | null) => $.state.set(NOTE, note)
 const setConfirm = ($: EngineInterface, on: boolean) => $.state.set(CONFIRM, on)
+const setConfirmPr = ($: EngineInterface, kind: 'merge' | 'close' | null) => $.state.set(CONFIRM_PR, kind)
 const setHidden = ($: EngineInterface, on: boolean) => $.state.set(HIDDEN, on)
 
 /* ---------- colors ---------- */
@@ -364,6 +374,28 @@ const submit = async ($: EngineInterface, command: string) => {
   }
 }
 
+/** The PR buttons: hermes-pr's `/pr merge | close`, or `/pr` alone to read the PR again. */
+const submitPr = async ($: EngineInterface, args: string) => {
+  await setConfirmPr($, null)
+  try {
+    await $.command.run({ command: 'pr', args })
+  } catch (err) {
+    await setNote($, `/pr ${args} failed: ${message(err)}`)
+  }
+}
+
+/** fix PR: the prompt hermes-pr prepared goes to the session as a turn of its own (a press may submit one; a slash command may not). */
+const submitFix = async ($: EngineInterface) => {
+  const text = (await $.state.get(PR_FIX)).value ?? null
+  if (text === null) return
+  try {
+    await $.prompt.submit({ text })
+    await setNote($, 'fix PR: sent to the session')
+  } catch (err) {
+    await setNote($, `fix PR failed: ${message(err)}`)
+  }
+}
+
 /* ---------- mine: what this session edited ---------- */
 
 const noteMine = async ($: EngineInterface, file: string) => {
@@ -481,7 +513,14 @@ export const register: Register = on => {
     /* Null when savvy-progress is not loaded: then the band draws no agents chip. */
     const runs = (await $.state.get(AGENTS)).value ?? null
     const agents = runs === null ? null : summarize(runs)
-    const { Box, Text, Button } = $.ui.resolve(e)
+    /* Null when hermes-pr is not loaded, the branch has no PR, or /pr hide: then no PR row and no PR buttons. */
+    const prHidden = (await $.state.get(PR_HIDDEN)).value ?? false
+    const pr = prHidden ? null : ((await $.state.get(PR)).value ?? null)
+    const prBusy = (await $.state.get(PR_BUSY)).value ?? null
+    const prFix = (await $.state.get(PR_FIX)).value ?? null
+    const prNote = (await $.state.get(PR_NOTE)).value ?? null
+    const confirmPr = await getConfirmPr($)
+    const { Box, Text, Button, Link } = $.ui.resolve(e)
 
     /* The context row: a headline, a bar of coloured cells, one legend chip per slice. */
     let contextRow = null
@@ -691,6 +730,81 @@ export const register: Register = on => {
         </Text>
       )
 
+    /* The PR row: number, title, state, the link, then the chips hermes-pr computed and the reasons under them. */
+    const openPr = pr !== null && (pr.state === 'open' || pr.state === 'draft') ? pr : null
+    const prRed = pr === null ? [] : pr.lines.filter(l => l.ok === false)
+    const prGreen = pr !== null && pr.lines.length > 0 && pr.lines.every(l => l.ok === true)
+    const prReasons = prRed.map(l => l.detail).filter((d): d is string => d !== null && d !== '')
+    const prRow =
+      pr === null ? null : (
+        <Box key="pr" flexDirection="column">
+          <Box flexDirection="row" flexWrap="wrap" gap={1} alignItems="center">
+            <Text wrap="truncate-end">
+              <Text color={C.warn} bold>
+                ⎇ #{pr.number}{' '}
+              </Text>
+              <Text bold>{pr.title}</Text>
+              {dot}
+              <Text color={pr.state === 'merged' ? C.branch : pr.state === 'closed' ? C.bad : pr.state === 'draft' ? C.warn : C.ok} bold>
+                {pr.state}
+              </Text>
+            </Text>
+            <Link href={pr.url} label="open on GitHub ↗" />
+            <Button key="pr-reload" plain dimColor hover={{ color: C.tree }} onPress={() => void submitPr($, '')}>
+              ↻
+            </Button>
+            {openPr !== null && confirmPr !== null ? (
+              <Box gap={1}>
+                <Text color={C.bad} bold>
+                  {confirmPr === 'merge' ? `merge #${openPr.number} into ${openPr.base}${prRed.length > 0 ? ` with ${prRed.length} red` : ''}?` : `close #${openPr.number}?`}
+                </Text>
+                <Button key="pr-yes" variant="primary" onPress={() => void submitPr($, confirmPr)}>
+                  yes
+                </Button>
+                <Button key="pr-no" onPress={() => void setConfirmPr($, null)}>
+                  no
+                </Button>
+              </Box>
+            ) : null}
+          </Box>
+          <Text wrap="truncate-end">
+            {pr.lines.map((l, i) => (
+              <Text key={`pr-line-${i}`}>
+                {i > 0 ? dot : null}
+                <Text color={l.ok === true ? C.ok : l.ok === false ? C.bad : C.warn} bold>
+                  {l.ok === true ? '✓' : l.ok === false ? '✗' : '…'}{' '}
+                </Text>
+                <Text dimColor={l.ok === null}>{l.text}</Text>
+              </Text>
+            ))}
+            {prBusy !== null ? (
+              <Text>
+                {dot}
+                <Text color={C.warn} bold>
+                  {prBusy === 'merge' ? 'merging…' : 'closing…'}
+                </Text>
+              </Text>
+            ) : null}
+          </Text>
+          {prReasons.length > 0 ? (
+            <Text dimColor wrap="truncate-end">
+              {`  ${prReasons.join(' · ')}`}
+            </Text>
+          ) : null}
+          {pr.state === 'merged' ? (
+            <Text wrap="truncate-end">
+              <Text dimColor>  merged · merging deploys nothing: release with </Text>
+              <Text color={C.tree}>node release/release.mjs</Text>
+            </Text>
+          ) : null}
+          {prNote !== null ? (
+            <Text dimColor wrap="truncate-end">
+              {`  ${prNote}`}
+            </Text>
+          ) : null}
+        </Box>
+      )
+
     return (
       <Box flexDirection="column">
       <Box key="band" flexDirection="row" paddingX={1} gap={2}>
@@ -719,6 +833,7 @@ export const register: Register = on => {
             )
           ) : null}
         </Box>
+        {prRow}
         {contextRow}
         {others.length > 0 ? (
           <Text color={C.bad} wrap="truncate-end">
@@ -745,6 +860,21 @@ export const register: Register = on => {
           <Button key="review" hotkey="v" hover={{ color: C.branch, bold: true }} onPress={() => void submit($, 'clean-code-review')}>
             review
           </Button>
+          {openPr !== null && prBusy === null ? (
+            <Button key="merge" hotkey="m" {...(prGreen ? { variant: 'primary' as const } : {})} hover={{ color: C.ok, bold: true }} onPress={() => void setConfirmPr($, 'merge')}>
+              merge
+            </Button>
+          ) : null}
+          {openPr !== null && prBusy === null && prFix !== null ? (
+            <Button key="fix" hotkey="f" hover={{ color: C.warn, bold: true }} onPress={() => void submitFix($)}>
+              fix PR
+            </Button>
+          ) : null}
+          {openPr !== null && prBusy === null ? (
+            <Button key="close-pr" hotkey="x" hover={{ color: C.bad, bold: true }} onPress={() => void setConfirmPr($, 'close')}>
+              close PR
+            </Button>
+          ) : null}
         </Box>
         <Box gap={1} marginTop={1}>
           <Button key="refresh" dimColor hover={{ color: C.tree }} onPress={() => void refreshAll($)}>

@@ -3,35 +3,29 @@ import type { EngineInterface, Register } from 'claude-code'
 
 import type { Action, CiState, Line, Mergeable, PrState, PrView, Review, Siblings } from '../types'
 
+/*
+ * hermes-pr reads the branch's pull request and runs the actions on it. It draws nothing:
+ * hermes-band reads `hermes-pr.pr` and draws the PR row and the merge / fix PR / close PR
+ * buttons, which run `/pr merge`, `/pr fix` and `/pr close` here.
+ */
+
 const NAME = 'hermes-pr'
 const COMMAND = 'pr'
 const FIELDS = 'number,url,title,state,isDraft,baseRefName,headRefName,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup'
-/** A shell command that changes the PR or the branch on origin: the card refreshes after it. */
+/** A shell command that changes the PR or the branch on origin: the PR is read again after it. */
 const CHANGES_PR = /\bgh\s+pr\s+(create|merge|close|ready|reopen)\b|\bgit\s+push\b/
 /** A branch that never carries a PR of its own. */
 const NO_PR_BRANCHES = ['', 'HEAD', 'main', 'prod']
 
-/* ---------- state the card draws from ---------- */
+/* ---------- state hermes-band draws from ---------- */
 
 const PR = atom({ plugin: 'hermes-pr', key: 'pr' } as const, null)
+const FIX = atom({ plugin: 'hermes-pr', key: 'fix' } as const, null)
 const BRANCH = atom({ plugin: 'hermes-pr', key: 'branch' } as const, null)
-const CONFIRM = atom({ plugin: 'hermes-pr', key: 'confirm' } as const, null)
 const BUSY = atom({ plugin: 'hermes-pr', key: 'busy' } as const, null)
 const NOTE = atom({ plugin: 'hermes-pr', key: 'note' } as const, null)
 const REFRESHED = atom({ plugin: 'hermes-pr', key: 'refreshedAt' } as const, 0)
 const HIDDEN = atom({ plugin: 'hermes-pr', key: 'hidden' } as const, false)
-
-/* ---------- colors: hermes-band's palette ---------- */
-
-const C = {
-  branch: '#c084fc',
-  tree: '#22d3ee',
-  ok: '#4ade80',
-  warn: '#fbbf24',
-  bad: '#f87171',
-  blue: '#60a5fa',
-  card: '#1f2937',
-}
 
 /* ---------- pure helpers (exported for the tests) ---------- */
 
@@ -72,7 +66,7 @@ export const ciOf = (rollup: readonly Check[]): { state: CiState; failing: strin
 /** `.../actions/runs/<run>/job/<id>` -> the job id, whose annotations say why a job never started. */
 export const jobIdOf = (url: string | null) => (url === null ? null : (/\/job\/(\d+)/.exec(url)?.[1] ?? null))
 
-/** The `gh pr view --json` answer to the record the card draws; null when it is not a PR. */
+/** The `gh pr view --json` answer to the record the band draws; null when it is not a PR. */
 export const parsePr = (json: string): PrView | null => {
   let raw: Record<string, unknown>
   try {
@@ -86,7 +80,7 @@ export const parsePr = (json: string): PrView | null => {
   const mergeable: Mergeable = raw.mergeable === 'MERGEABLE' ? 'clean' : raw.mergeable === 'CONFLICTING' ? 'conflicts' : 'unknown'
   const review: Review =
     raw.reviewDecision === 'APPROVED' ? 'approved' : raw.reviewDecision === 'CHANGES_REQUESTED' ? 'changes' : raw.reviewDecision === 'REVIEW_REQUIRED' ? 'required' : 'none'
-  return {
+  const view: PrView = {
     number: raw.number,
     url: raw.url,
     title: String(raw.title ?? ''),
@@ -98,7 +92,10 @@ export const parsePr = (json: string): PrView | null => {
     review,
     behind: null,
     siblings: null,
+    lines: [],
   }
+  view.lines = statusLines(view)
+  return view
 }
 
 /** What `release/pr-conflicts.mjs` said, from its exit code and its lines; null when the repo has no such script. */
@@ -118,7 +115,7 @@ export const siblingsOf = (exitCode: number, stdout: string, stderr: string): Si
 
 const line = (ok: boolean | null, text: string, detail: string | null = null): Line => ({ ok, text, detail })
 
-/** The status chips, in the card's order: CI, main, behind, the other PRs, review. */
+/** The status chips, in the band's order: CI, main, behind, the other PRs, review. */
 export const statusLines = (v: PrView): Line[] => {
   const lines: Line[] = []
   const ci = v.ci
@@ -151,27 +148,17 @@ export const statusLines = (v: PrView): Line[] => {
   return lines
 }
 
-export const isGreen = (v: PrView) => statusLines(v).every(l => l.ok === true)
+export const isGreen = (v: PrView) => v.lines.every(l => l.ok === true)
 
-/** The prompt `fix PR` queues to the session: the PR, the red lines, and the ask. */
+/** The prompt `/pr fix` queues to the session: the PR, the red lines, and the ask. */
 export const fixPrompt = (v: PrView) => {
-  const red = statusLines(v)
-    .filter(l => l.ok === false)
-    .map(l => `- ${l.text}${l.detail !== null && l.detail !== '' ? `: ${l.detail}` : ''}`)
+  const red = v.lines.filter(l => l.ok === false).map(l => `- ${l.text}${l.detail !== null && l.detail !== '' ? `: ${l.detail}` : ''}`)
   return [
     `Fix PR #${v.number} (${v.url}), branch ${v.head} into ${v.base}. What is red:`,
     ...(red.length > 0 ? red : ['- nothing is red now; check the PR page']),
     '',
     `Merge origin/${v.base} in if the branch is behind or conflicting, make the gate green (node checks/check.mjs), push, and reply in a few lines with what changed. Never weaken a test to get there.`,
   ].join('\n')
-}
-
-export const ago = (ms: number) => {
-  if (ms < 1500) return 'just now'
-  const s = Math.round(ms / 1000)
-  if (s < 60) return `${s}s ago`
-  const m = Math.round(s / 60)
-  return m < 60 ? `${m}m ago` : `${Math.round(m / 60)}h ago`
 }
 
 /* ---------- the host: gh and git in the session's tree ---------- */
@@ -212,13 +199,14 @@ const reasonOf = async ($: EngineInterface, cwd: string, detailsUrl: string | nu
 
 const setNote = ($: EngineInterface, note: string | null) => update($, NOTE, () => note)
 
-/** Reads the branch's PR again. `fetch` also brings origin up to date first (the reload button and /pr; never the timer). */
+/** Reads the branch's PR again. `fetch` also brings origin up to date first (/pr and the band's reload; never the timer). */
 const refresh = async ($: EngineInterface, fetch = false): Promise<PrView | null> => {
   const cwd = await $.session.cwd()
   const branch = (await run($, ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd)).out.trim()
   await update($, BRANCH, () => (branch === '' ? null : branch))
   const done = async (view: PrView | null) => {
     await update($, PR, () => view)
+    await update($, FIX, () => (view !== null && (view.state === 'open' || view.state === 'draft') && view.lines.some(l => l.ok === false) ? fixPrompt(view) : null))
     await update($, REFRESHED, () => Date.now())
     return view
   }
@@ -237,6 +225,7 @@ const refresh = async ($: EngineInterface, fetch = false): Promise<PrView | null
     const s = await run($, ['node', 'release/pr-conflicts.mjs', '--no-fetch'], cwd, 120_000)
     view.siblings = siblingsOf(s.code, s.out, s.err)
   }
+  view.lines = statusLines(view)
   return done(view)
 }
 
@@ -246,37 +235,38 @@ const tick = async ($: EngineInterface) => {
   await refresh($)
 }
 
-/** merge or close, after the yes. One at a time; the result goes to the note and a toast. */
-const act = async ($: EngineInterface, kind: Action) => {
+/** merge or close, after the band's yes. One at a time; the result goes to the note and a toast. */
+const act = async ($: EngineInterface, kind: Action): Promise<string> => {
   const view = await read($, PR)
-  if (view === null || (await read($, BUSY)) !== null) return
-  await update($, CONFIRM, () => null)
+  if (view === null) return `${NAME}: no pull request to ${kind}.`
+  if ((await read($, BUSY)) !== null) return `${NAME}: busy, try again in a moment.`
   await update($, BUSY, () => kind)
   const cwd = await $.session.cwd()
   const argv = kind === 'merge' ? ['gh', 'pr', 'merge', String(view.number), '--merge'] : ['gh', 'pr', 'close', String(view.number)]
   const r = await run($, argv, cwd, 120_000)
   const note = r.code === 0 ? `${kind === 'merge' ? 'merged' : 'closed'} #${view.number}` : `${kind} refused: ${oneLine(r.err.trim() || r.out.trim() || 'no reason given', 200)}`
   await setNote($, note)
-  $.ui.toast(`${NAME}: ${note}`)
+  try {
+    $.ui.toast(`${NAME}: ${note}`)
+  } catch {}
   await update($, BUSY, () => null)
   await refresh($, true)
+  return `${NAME}: ${note}${r.code === 0 && kind === 'merge' ? '. Merging deploys nothing: release with node release/release.mjs.' : ''}`
 }
 
-/** fix PR: one prompt to this session, a turn of its own once it is idle. */
-const fix = async ($: EngineInterface) => {
-  const view = await read($, PR)
-  if (view === null) return
+/**
+ * /pr fix, typed: the fix prompt goes into the prompt box for the person to send. A slash command may not
+ * submit a prompt itself (it holds the turn); the band's fix PR button submits `hermes-pr.fix` from its press.
+ */
+const fix = async ($: EngineInterface): Promise<string> => {
+  const text = await read($, FIX)
+  if (text === null) return `${NAME}: nothing is red on this PR.`
   try {
-    await $.prompt.submit({ text: fixPrompt(view) })
-    await setNote($, `fix PR #${view.number}: sent to the session`)
+    const filled = await $.prompt.fill({ text, mode: 'replace' })
+    return filled.isFilled ? `${NAME}: the fix prompt is in the box; send it when ready.` : `${NAME}: could not fill the prompt box here.`
   } catch (err) {
-    await setNote($, `fix PR failed: ${message(err)}`)
+    return `${NAME}: fix PR failed: ${message(err)}`
   }
-}
-
-const reload = async ($: EngineInterface) => {
-  await setNote($, null)
-  await refresh($, true)
 }
 
 /** After a shell command that touched the PR or pushed the branch: read the PR again. */
@@ -290,8 +280,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: `${NAME}: read this branch's PR again and show the card above the band (merge, fix PR, close PR); "hide" / "show"`,
-      argumentHint: 'hide | show',
+      description: `${NAME}: read this branch's PR again for the band's PR row; merge | close act on it (the band's buttons run these), fix puts the fix prompt in the box; hide | show`,
+      argumentHint: 'merge | fix | close | hide | show',
     })
     try {
       $.clock.after(100, () => void refresh($))
@@ -304,16 +294,22 @@ export const register: Register = on => {
     const arg = e.args.trim()
     if (arg === 'hide') {
       await update($, HIDDEN, () => true)
-      return { text: `${NAME}: the card is hidden until /pr show.` }
+      return { text: `${NAME}: the PR row is hidden until /pr show.` }
     }
+    if (arg === 'show') {
+      await update($, HIDDEN, () => false)
+      return { text: `${NAME}: the PR row is back.` }
+    }
+    if (arg === 'merge' || arg === 'close') return { text: await act($, arg) }
+    if (arg === 'fix') return { text: await fix($) }
     await update($, HIDDEN, () => false)
-    if (arg === 'show') return { text: `${NAME}: the card is back.` }
+    await setNote($, null)
     const view = await refresh($, true)
     const branch = await read($, BRANCH)
     return { text: view === null ? `${NAME}: no pull request on ${branch ?? 'this branch'}.` : `${NAME}: #${view.number} ${view.state}, ${isGreen(view) ? 'all green' : 'something is red'}.` }
   })
 
-  /* A push or a gh pr command in the chat: the card reads the PR again once it ran. The read is awaited (a few seconds, after a rare command) so a host without a clock sees it too. */
+  /* A push or a gh pr command in the chat: the PR is read again once it ran. The read is awaited (a few seconds, after a rare command) so a host without a clock sees it too. */
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const ran = await next(e)
     await afterShell($, e.command)
@@ -323,140 +319,5 @@ export const register: Register = on => {
     const ran = await next(e)
     await afterShell($, e.command)
     return ran
-  })
-
-  /* The card sits above whatever the mods beneath drew (hermes-band among them), and only while the branch has a PR. */
-  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey || (await read($, HIDDEN))) return next(e)
-    const view = await read($, PR)
-    if (view === null) return next(e)
-    const rest = await next(e)
-    const { Box, Text, Button, Link } = $.ui.resolve(e)
-    const confirm = await read($, CONFIRM)
-    const busy = await read($, BUSY)
-    const note = await read($, NOTE)
-    const refreshedAt = await read($, REFRESHED)
-
-    const lines = statusLines(view)
-    const red = lines.filter(l => l.ok === false)
-    const green = lines.every(l => l.ok === true)
-    const open = view.state === 'open' || view.state === 'draft'
-    const stateColor = view.state === 'merged' ? C.branch : view.state === 'closed' ? C.bad : view.state === 'draft' ? C.warn : C.ok
-    const details = lines.filter(l => l.ok === false && l.detail !== null && l.detail !== '').map(l => l.detail)
-    const dot = <Text dimColor> · </Text>
-
-    const title = (
-      <Box key="pr-title" flexDirection="row" gap={1} alignItems="center">
-        <Text wrap="truncate-end">
-          <Text color={C.warn} bold>
-            ⎇ #{view.number}{' '}
-          </Text>
-          <Text bold>{view.title}</Text>
-          {dot}
-          <Text color={stateColor} bold>
-            {view.state}
-          </Text>
-          {dot}
-          <Text dimColor>{refreshedAt === 0 ? 'not read yet' : ago(Date.now() - refreshedAt)}</Text>
-        </Text>
-        <Link href={view.url} label="open on GitHub ↗" />
-        <Button key="reload" hotkey="r" plain dimColor hover={{ color: C.tree, bold: true }} onPress={() => void reload($)}>
-          ↻
-        </Button>
-      </Box>
-    )
-
-    const chips = (
-      <Box key="pr-chips" flexDirection="row" flexWrap="wrap" gap={1}>
-        {lines.map((l, i) => (
-          <Text key={`chip-${i}`}>
-            <Text color={l.ok === true ? C.ok : l.ok === false ? C.bad : C.warn} bold>
-              {l.ok === true ? '✓' : l.ok === false ? '✗' : '…'}{' '}
-            </Text>
-            <Text dimColor={l.ok === null}>{l.text}</Text>
-            {i < lines.length - 1 ? <Text dimColor> ·</Text> : null}
-          </Text>
-        ))}
-      </Box>
-    )
-
-    let buttons = null
-    if (open && busy !== null) {
-      buttons = (
-        <Text color={C.warn} bold>
-          {busy === 'merge' ? 'merging…' : 'closing…'}
-        </Text>
-      )
-    } else if (open && confirm !== null) {
-      const kind = confirm
-      buttons = (
-        <Box key={`confirm-${kind}`} flexDirection="column" alignItems="flex-end">
-          <Text color={C.bad} bold>
-            {kind === 'merge' ? `merge #${view.number} into ${view.base}?` : `close #${view.number}?`}
-          </Text>
-          {kind === 'merge' && red.length > 0 ? (
-            <Text color={C.warn}>
-              {red.length} red line{red.length === 1 ? '' : 's'}
-            </Text>
-          ) : null}
-          <Box flexDirection="row" gap={1}>
-            <Button key={`${kind}-yes`} variant="primary" onPress={() => void act($, kind)}>
-              yes
-            </Button>
-            <Button key={`${kind}-no`} onPress={() => void update($, CONFIRM, () => null)}>
-              no
-            </Button>
-          </Box>
-        </Box>
-      )
-    } else if (open) {
-      buttons = (
-        <Box key="pr-buttons" flexDirection="column" alignItems="flex-end">
-          <Button key="merge" hotkey="m" {...(green ? { variant: 'primary' as const } : {})} hover={{ color: C.ok, bold: true }} onPress={() => void update($, CONFIRM, () => 'merge')}>
-            merge
-          </Button>
-          {red.length > 0 ? (
-            <Button key="fix" hotkey="f" hover={{ color: C.warn, bold: true }} onPress={() => void fix($)}>
-              fix PR
-            </Button>
-          ) : null}
-          <Button key="close" hotkey="c" hover={{ color: C.bad, bold: true }} onPress={() => void update($, CONFIRM, () => 'close')}>
-            close PR
-          </Button>
-        </Box>
-      )
-    }
-
-    return (
-      <Box flexDirection="column">
-        <Box key="pr-card" flexDirection="row" paddingX={1} gap={2} marginBottom={1}>
-          <Box flexDirection="column" flexGrow={1} flexShrink={1}>
-            {title}
-            {chips}
-            {details.length > 0 ? (
-              <Text dimColor wrap="truncate-end">
-                {`  ${details.join(' · ')}`}
-              </Text>
-            ) : null}
-            {view.state === 'merged' ? (
-              <Text wrap="truncate-end">
-                <Text color={C.branch} bold>
-                  merged
-                </Text>
-                <Text dimColor> · merging deploys nothing: release with </Text>
-                <Text color={C.tree}>node release/release.mjs</Text>
-              </Text>
-            ) : null}
-            {note !== null ? (
-              <Text dimColor wrap="truncate-end">
-                {note}
-              </Text>
-            ) : null}
-          </Box>
-          {buttons}
-        </Box>
-        {rest ?? null}
-      </Box>
-    )
   })
 }

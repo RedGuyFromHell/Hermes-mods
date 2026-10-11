@@ -4,14 +4,14 @@ Claude Code mods (plugins of function hooks): hermes-band, hermes-guard, diff-fo
 
 ## hermes-pr
 
-A card above the band for the branch's pull request, in hermes-band's colours ([its README](hermes-pr/README.md) has the picture and the design). It draws only while the branch has a PR:
+The branch's pull request, read for hermes-band, which draws it as a row under its git row ([its README](hermes-pr/README.md) has the picture and the design). hermes-pr itself draws nothing. While the branch has a PR, the band shows:
 
-- the PR's number and title, and a link to it on GitHub at the right;
+- the PR's number, title and state, a link to it on GitHub, and `↻`;
 - five chips with a check or a cross: CI (with the reason under it when red, such as a job GitHub refused to start), no conflicts with main, up to date with main, clear of the other open PRs (`release/pr-conflicts.mjs`), review;
-- buttons stacked on the right: `merge` (a merge commit, after a yes), `fix PR` (one prompt to the session with the red lines, only while something is red), `close PR` (after a yes), and `↻` to reload;
-- it reads the PR again every minute and after any `git push` or `gh pr` command in the chat.
+- under compact / ship / review, the PR buttons: `merge` (a merge commit, after a yes), `fix PR` (one prompt to the session with the red lines, only while something is red), `close PR` (after a yes);
+- the PR is read again every minute and after any `git push` or `gh pr` command in the chat.
 
-Commands: `/pr` (refresh), `/pr hide|show`.
+Commands: `/pr` (read again), `/pr merge|close` (what the band's yes runs), `/pr fix` (the fix prompt into the box), `/pr hide|show`.
 
 ## hermes-band
 
@@ -22,6 +22,7 @@ A colored band above the prompt:
 - beside the gauges, savvy-progress's counts (`3 · 2 running · 1 done`, a ring on the desktop) and a button that opens its agents panel (`/agents-info`); with savvy-progress not loaded, nothing;
 - the band draws above whatever the mods beneath it drew (cache-tax's row), and the savvy-progress bar sits above the band;
 - the api and web dev servers with their ports and worktrees, orphans marked, and a two-step "stop orphans" button (Windows only: the scan uses PowerShell);
+- with hermes-pr loaded, the branch's PR under the git row: its chips, the link, and merge / fix PR / close PR in the button column;
 - buttons for `/compact`, `/ship` and `/clean-code-review`.
 
 Commands: `/band`, `/band hide|show|refresh|forget`.

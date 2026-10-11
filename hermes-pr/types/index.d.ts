@@ -16,7 +16,15 @@ export type Siblings = {
   detail: string
 }
 
-/** The pull request of the session's branch, as the pane shows it. */
+/** One status chip of the PR: `ok` null while unknown. hermes-band draws these. */
+export type Line = {
+  ok: boolean | null
+  text: string
+  /** A second, dimmer line: the CI reason, the conflicting pairs. */
+  detail: string | null
+}
+
+/** The pull request of the session's branch, as hermes-pr read it and hermes-band draws it. */
 export type PrView = {
   number: number
   url: string
@@ -39,14 +47,8 @@ export type PrView = {
   behind: number | null
   /** Null where the repo has no conflict script, or the PR is no longer open. */
   siblings: Siblings | null
-}
-
-/** One status line of the pane: `ok` null while unknown. */
-export type Line = {
-  ok: boolean | null
-  text: string
-  /** A second, dimmer line under it: the CI reason, the conflicting pairs. */
-  detail: string | null
+  /** The five chips, in the band's order: CI, main, behind, the other PRs, review. */
+  lines: Line[]
 }
 
 export type Action = 'merge' | 'close'
@@ -54,19 +56,19 @@ export type Action = 'merge' | 'close'
 declare module 'claude-code' {
   interface PluginState {
     'hermes-pr': {
-      /** The branch's PR; null when the branch has none or is main/prod. */
+      /** The branch's PR; null when the branch has none or is main/prod. hermes-band reads it. */
       pr: PrView | null
+      /** The prompt that fixes what is red, ready to submit; null while nothing is red. hermes-band's fix PR button submits it. */
+      fix: string | null
       /** The branch the session stands on; null before the first refresh. */
       branch: string | null
-      /** The two-step button waiting for its yes. */
-      confirm: Action | null
       /** The action running now, so a button is not pressed twice. */
       busy: Action | null
       /** The last action's result, one line. */
       note: string | null
-      /** When the pane last read the PR, ms since the epoch; 0 before the first read. */
+      /** When the PR was last read, ms since the epoch; 0 before the first read. */
       refreshedAt: number
-      /** `/pr hide` took the card down; `/pr show` or `/pr` brings it back. */
+      /** `/pr hide` took the PR row down; `/pr show` or `/pr` brings it back. */
       hidden: boolean
     }
   }

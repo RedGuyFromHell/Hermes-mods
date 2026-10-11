@@ -49,7 +49,7 @@
     },
     {
       "name": "hermes-pr",
-      "description": "A card above hermes-band for the branch's pull request: the PR as a link, five status lines (CI with its reason, conflicts with main, behind main, the other open PRs, review) with a check or a cross, and merge / fix PR / close PR buttons stacked on the right; /pr refreshes it, /pr hide|show.",
+      "description": "The branch's pull request for hermes-band, which draws it as a row in the band: the PR as a link, five status chips (CI with its reason, conflicts with main, behind main, the other open PRs, review) with a check or a cross, and merge / fix PR / close PR buttons; /pr reads it again, /pr merge|close|fix, /pr hide|show.",
       "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
       "source": "./hermes-pr",
       "category": "productivity"

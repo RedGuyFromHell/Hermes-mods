@@ -64,11 +64,42 @@ export type AgentsSummary = {
   failed: number
 }
 
+/** One status chip of the branch's pull request, as hermes-pr computed it: `ok` null while unknown. */
+export type PrLine = {
+  ok: boolean | null
+  text: string
+  /** A reason under the chips: the CI annotation, the conflicting pairs. */
+  detail: string | null
+}
+
+/** The branch's pull request, as hermes-pr read it; the band draws these fields. */
+export type PullRequest = {
+  number: number
+  url: string
+  title: string
+  state: 'open' | 'draft' | 'merged' | 'closed'
+  base: string
+  head: string
+  lines: PrLine[]
+}
+
 declare module 'claude-code' {
   interface PluginState {
     /** Read only: savvy-progress owns and writes it. Absent when that mod is not loaded. Only `status` is read here. */
     'savvy-progress': {
       agents: { status: 'running' | 'done' | 'failed' }[]
+    }
+    /** Read only: hermes-pr owns and writes it. Absent when that mod is not loaded; then the band draws no PR row. */
+    'hermes-pr': {
+      pr: PullRequest | null
+      /** The prompt that fixes what is red, ready to submit from the fix PR button; null while nothing is red. */
+      fix: string | null
+      /** The action hermes-pr is running now. */
+      busy: 'merge' | 'close' | null
+      /** Its last action's result, one line. */
+      note: string | null
+      /** `/pr hide` took the row down. */
+      hidden: boolean
     }
     'hermes-band': {
       repo: Repo | null
@@ -78,6 +109,8 @@ declare module 'claude-code' {
       mine: string[]
       /** True after the first press of "stop orphans", until yes or no. */
       confirmStop: boolean
+      /** The PR button pressed once, waiting for its yes or no. */
+      confirmPr: 'merge' | 'close' | null
       hidden: boolean
       /** One short line under the band: the last action or the last error; null for none. */
       note: string | null
