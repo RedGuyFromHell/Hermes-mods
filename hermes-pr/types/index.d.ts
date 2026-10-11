@@ -66,8 +66,8 @@ declare module 'claude-code' {
       note: string | null
       /** When the pane last read the PR, ms since the epoch; 0 before the first read. */
       refreshedAt: number
-      /** The pane opened by itself once this session (or `/pr hide` said not to). */
-      autoOpened: boolean
+      /** `/pr hide` took the card down; `/pr show` or `/pr` brings it back. */
+      hidden: boolean
     }
   }
 }

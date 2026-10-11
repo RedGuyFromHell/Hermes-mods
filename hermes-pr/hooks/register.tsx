@@ -4,16 +4,14 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { Action, CiState, Line, Mergeable, PrState, PrView, Review, Siblings } from '../types'
 
 const NAME = 'hermes-pr'
-const PANE = 'hermes-pr'
-const TITLE = 'PR'
 const COMMAND = 'pr'
 const FIELDS = 'number,url,title,state,isDraft,baseRefName,headRefName,mergeable,mergeStateStatus,reviewDecision,statusCheckRollup'
-/** A shell command that changes the PR or the branch on origin: the pane refreshes after it. */
+/** A shell command that changes the PR or the branch on origin: the card refreshes after it. */
 const CHANGES_PR = /\bgh\s+pr\s+(create|merge|close|ready|reopen)\b|\bgit\s+push\b/
 /** A branch that never carries a PR of its own. */
 const NO_PR_BRANCHES = ['', 'HEAD', 'main', 'prod']
 
-/* ---------- state the pane draws from ---------- */
+/* ---------- state the card draws from ---------- */
 
 const PR = atom({ plugin: 'hermes-pr', key: 'pr' } as const, null)
 const BRANCH = atom({ plugin: 'hermes-pr', key: 'branch' } as const, null)
@@ -21,7 +19,7 @@ const CONFIRM = atom({ plugin: 'hermes-pr', key: 'confirm' } as const, null)
 const BUSY = atom({ plugin: 'hermes-pr', key: 'busy' } as const, null)
 const NOTE = atom({ plugin: 'hermes-pr', key: 'note' } as const, null)
 const REFRESHED = atom({ plugin: 'hermes-pr', key: 'refreshedAt' } as const, 0)
-const AUTO_OPENED = atom({ plugin: 'hermes-pr', key: 'autoOpened' } as const, false)
+const HIDDEN = atom({ plugin: 'hermes-pr', key: 'hidden' } as const, false)
 
 /* ---------- colors: hermes-band's palette ---------- */
 
@@ -74,7 +72,7 @@ export const ciOf = (rollup: readonly Check[]): { state: CiState; failing: strin
 /** `.../actions/runs/<run>/job/<id>` -> the job id, whose annotations say why a job never started. */
 export const jobIdOf = (url: string | null) => (url === null ? null : (/\/job\/(\d+)/.exec(url)?.[1] ?? null))
 
-/** The `gh pr view --json` answer to the record the pane draws; null when it is not a PR. */
+/** The `gh pr view --json` answer to the record the card draws; null when it is not a PR. */
 export const parsePr = (json: string): PrView | null => {
   let raw: Record<string, unknown>
   try {
@@ -120,7 +118,7 @@ export const siblingsOf = (exitCode: number, stdout: string, stderr: string): Si
 
 const line = (ok: boolean | null, text: string, detail: string | null = null): Line => ({ ok, text, detail })
 
-/** The status lines, in the pane's order: CI, main, behind, the other PRs, review. */
+/** The status chips, in the card's order: CI, main, behind, the other PRs, review. */
 export const statusLines = (v: PrView): Line[] => {
   const lines: Line[] = []
   const ci = v.ci
@@ -135,7 +133,7 @@ export const statusLines = (v: PrView): Line[] => {
 
   if (v.behind !== null) {
     if (v.behind === 0) lines.push(line(true, `up to date with ${v.base}`))
-    else lines.push(line(false, `${v.behind} commit${v.behind === 1 ? '' : 's'} behind ${v.base}`))
+    else lines.push(line(false, `${v.behind} behind ${v.base}`))
   }
 
   if (v.siblings !== null) {
@@ -214,19 +212,8 @@ const reasonOf = async ($: EngineInterface, cwd: string, detailsUrl: string | nu
 
 const setNote = ($: EngineInterface, note: string | null) => update($, NOTE, () => note)
 
-const openPane = async ($: EngineInterface) => {
-  try {
-    await $.ui.open({ id: PANE, title: TITLE })
-  } catch (err) {
-    await setNote($, `pane: ${message(err)}`)
-  }
-}
-
-/**
- * Reads the branch's PR again. `fetch` also brings origin up to date first (the reload button; never the timer).
- * `open` lets the pane open by itself the first time an open PR is found; `/pr` opens it itself and passes false.
- */
-const refresh = async ($: EngineInterface, fetch = false, open = true): Promise<PrView | null> => {
+/** Reads the branch's PR again. `fetch` also brings origin up to date first (the reload button and /pr; never the timer). */
+const refresh = async ($: EngineInterface, fetch = false): Promise<PrView | null> => {
   const cwd = await $.session.cwd()
   const branch = (await run($, ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd)).out.trim()
   await update($, BRANCH, () => (branch === '' ? null : branch))
@@ -250,13 +237,7 @@ const refresh = async ($: EngineInterface, fetch = false, open = true): Promise<
     const s = await run($, ['node', 'release/pr-conflicts.mjs', '--no-fetch'], cwd, 120_000)
     view.siblings = siblingsOf(s.code, s.out, s.err)
   }
-  await done(view)
-
-  if (open && (view.state === 'open' || view.state === 'draft') && !(await read($, AUTO_OPENED))) {
-    await update($, AUTO_OPENED, () => true)
-    await openPane($)
-  }
-  return view
+  return done(view)
 }
 
 /** The timer's refresh: skipped while an action runs. */
@@ -309,8 +290,8 @@ export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     await $.command.register({
       name: COMMAND,
-      description: `${NAME}: open the PR pane for this branch (merge, fix, close, reload); "hide" keeps it from opening by itself`,
-      argumentHint: 'hide',
+      description: `${NAME}: read this branch's PR again and show the card above the band (merge, fix PR, close PR); "hide" / "show"`,
+      argumentHint: 'hide | show',
     })
     try {
       $.clock.after(100, () => void refresh($))
@@ -320,18 +301,19 @@ export const register: Register = on => {
   })
 
   on('command.run', { command: COMMAND }, async ($, e) => {
-    if (e.args.trim() === 'hide') {
-      await update($, AUTO_OPENED, () => true)
-      return { text: `${NAME}: the pane stays closed until /pr.` }
+    const arg = e.args.trim()
+    if (arg === 'hide') {
+      await update($, HIDDEN, () => true)
+      return { text: `${NAME}: the card is hidden until /pr show.` }
     }
-    const view = await refresh($, true, false)
-    await update($, AUTO_OPENED, () => true)
-    await openPane($)
+    await update($, HIDDEN, () => false)
+    if (arg === 'show') return { text: `${NAME}: the card is back.` }
+    const view = await refresh($, true)
     const branch = await read($, BRANCH)
     return { text: view === null ? `${NAME}: no pull request on ${branch ?? 'this branch'}.` : `${NAME}: #${view.number} ${view.state}, ${isGreen(view) ? 'all green' : 'something is red'}.` }
   })
 
-  /* A push or a gh pr command in the chat: the pane reads the PR again once it ran. The read is awaited (a few seconds, after a rare command) so a host without a clock sees it too. */
+  /* A push or a gh pr command in the chat: the card reads the PR again once it ran. The read is awaited (a few seconds, after a rare command) so a host without a clock sees it too. */
   on('tool.call', { tool: 'Bash' }, async ($, e, next) => {
     const ran = await next(e)
     await afterShell($, e.command)
@@ -343,91 +325,57 @@ export const register: Register = on => {
     return ran
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Link } = $.ui.resolve(e)
+  /* The card sits above whatever the mods beneath drew (hermes-band among them), and only while the branch has a PR. */
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    if (e.props.hasSurvey || (await read($, HIDDEN))) return next(e)
     const view = await read($, PR)
-    const branch = await read($, BRANCH)
+    if (view === null) return next(e)
+    const rest = await next(e)
+    const { Box, Text, Button, Link } = $.ui.resolve(e)
     const confirm = await read($, CONFIRM)
     const busy = await read($, BUSY)
     const note = await read($, NOTE)
     const refreshedAt = await read($, REFRESHED)
-    const dot = <Text dimColor> · </Text>
-    const reloadButton = (
-      <Button key="reload" hotkey="r" plain dimColor hover={{ color: C.tree, bold: true }} onPress={() => void reload($)}>
-        ↻
-      </Button>
-    )
-    const noteLine =
-      note !== null ? (
-        <Text dimColor wrap="truncate-end">
-          {note}
-        </Text>
-      ) : null
-
-    if (view === null) {
-      return (
-        <Box flexDirection="column" paddingX={1}>
-          <Box key="empty-head" flexDirection="row" gap={1} alignItems="center">
-            <Text>
-              <Text color={C.warn} bold>
-                ⎇ PR
-              </Text>
-              {dot}
-              <Text dimColor>{branch === null ? 'reading the branch…' : NO_PR_BRANCHES.includes(branch) ? `on ${branch}: a PR needs its own branch` : `no pull request on ${branch}`}</Text>
-            </Text>
-            {reloadButton}
-          </Box>
-          {noteLine}
-        </Box>
-      )
-    }
 
     const lines = statusLines(view)
     const red = lines.filter(l => l.ok === false)
-    const green = red.length === 0 && lines.every(l => l.ok === true)
+    const green = lines.every(l => l.ok === true)
     const open = view.state === 'open' || view.state === 'draft'
     const stateColor = view.state === 'merged' ? C.branch : view.state === 'closed' ? C.bad : view.state === 'draft' ? C.warn : C.ok
+    const details = lines.filter(l => l.ok === false && l.detail !== null && l.detail !== '').map(l => l.detail)
+    const dot = <Text dimColor> · </Text>
 
-    const header = (
-      <Box key="header" flexDirection="row" justifyContent="space-between" gap={2}>
+    const title = (
+      <Box key="pr-title" flexDirection="row" gap={1} alignItems="center">
         <Text wrap="truncate-end">
           <Text color={C.warn} bold>
             ⎇ #{view.number}{' '}
           </Text>
           <Text bold>{view.title}</Text>
-        </Text>
-        <Link href={view.url} label="open on GitHub ↗" />
-      </Box>
-    )
-    const subline = (
-      <Box key="subline" flexDirection="row" gap={1} alignItems="center">
-        <Text wrap="truncate-end">
-          <Text color={C.branch}>{view.base}</Text>
-          <Text dimColor> ← </Text>
-          <Text color={C.tree}>{view.head}</Text>
           {dot}
           <Text color={stateColor} bold>
             {view.state}
           </Text>
           {dot}
-          <Text dimColor>refreshed {refreshedAt === 0 ? 'never' : ago(Date.now() - refreshedAt)}</Text>
+          <Text dimColor>{refreshedAt === 0 ? 'not read yet' : ago(Date.now() - refreshedAt)}</Text>
         </Text>
-        {reloadButton}
+        <Link href={view.url} label="open on GitHub ↗" />
+        <Button key="reload" hotkey="r" plain dimColor hover={{ color: C.tree, bold: true }} onPress={() => void reload($)}>
+          ↻
+        </Button>
       </Box>
     )
 
-    const status = (
-      <Box key="status" flexDirection="column" flexGrow={1} flexShrink={1}>
+    const chips = (
+      <Box key="pr-chips" flexDirection="row" flexWrap="wrap" gap={1}>
         {lines.map((l, i) => (
-          <Box key={`line-${i}`} flexDirection="column">
-            <Text wrap="truncate-end">
-              <Text color={l.ok === true ? C.ok : l.ok === false ? C.bad : C.warn} bold>
-                {l.ok === true ? '✓' : l.ok === false ? '✗' : '…'}{' '}
-              </Text>
-              <Text dimColor={l.ok === null}>{l.text}</Text>
+          <Text key={`chip-${i}`}>
+            <Text color={l.ok === true ? C.ok : l.ok === false ? C.bad : C.warn} bold>
+              {l.ok === true ? '✓' : l.ok === false ? '✗' : '…'}{' '}
             </Text>
-            {l.detail !== null && l.detail !== '' ? <Text dimColor>{`   ${l.detail}`}</Text> : null}
-          </Box>
+            <Text dimColor={l.ok === null}>{l.text}</Text>
+            {i < lines.length - 1 ? <Text dimColor> ·</Text> : null}
+          </Text>
         ))}
       </Box>
     )
@@ -463,7 +411,7 @@ export const register: Register = on => {
       )
     } else if (open) {
       buttons = (
-        <Box key="buttons" flexDirection="column" alignItems="flex-end">
+        <Box key="pr-buttons" flexDirection="column" alignItems="flex-end">
           <Button key="merge" hotkey="m" {...(green ? { variant: 'primary' as const } : {})} hover={{ color: C.ok, bold: true }} onPress={() => void update($, CONFIRM, () => 'merge')}>
             merge
           </Button>
@@ -480,23 +428,34 @@ export const register: Register = on => {
     }
 
     return (
-      <Box flexDirection="column" paddingX={1}>
-        {header}
-        {subline}
-        <Box flexDirection="row" gap={2} marginTop={1}>
-          {status}
+      <Box flexDirection="column">
+        <Box key="pr-card" flexDirection="row" paddingX={1} gap={2} marginBottom={1}>
+          <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+            {title}
+            {chips}
+            {details.length > 0 ? (
+              <Text dimColor wrap="truncate-end">
+                {`  ${details.join(' · ')}`}
+              </Text>
+            ) : null}
+            {view.state === 'merged' ? (
+              <Text wrap="truncate-end">
+                <Text color={C.branch} bold>
+                  merged
+                </Text>
+                <Text dimColor> · merging deploys nothing: release with </Text>
+                <Text color={C.tree}>node release/release.mjs</Text>
+              </Text>
+            ) : null}
+            {note !== null ? (
+              <Text dimColor wrap="truncate-end">
+                {note}
+              </Text>
+            ) : null}
+          </Box>
           {buttons}
         </Box>
-        {view.state === 'merged' ? (
-          <Text wrap="truncate-end">
-            <Text color={C.branch} bold>
-              merged
-            </Text>
-            <Text dimColor> · merging deploys nothing: release with </Text>
-            <Text color={C.tree}>node release/release.mjs</Text>
-          </Text>
-        ) : null}
-        {noteLine}
+        {rest ?? null}
       </Box>
     )
   })
