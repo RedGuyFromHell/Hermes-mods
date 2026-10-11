@@ -1,6 +1,17 @@
 # hermes-mods
 
-Claude Code mods (plugins of function hooks): hermes-band, hermes-guard and diff-follow for the Hermes project, nerd-band for the Nerd Castle knowledge base, and the retired hermes-agents. They need Claude Code 2.1.289 or newer.
+Claude Code mods (plugins of function hooks): hermes-band, hermes-guard, diff-follow and hermes-pr for the Hermes project, nerd-band for the Nerd Castle knowledge base, and the retired hermes-agents. They need Claude Code 2.1.289 or newer.
+
+## hermes-pr
+
+A card above the band for the branch's pull request, in hermes-band's colours ([its README](hermes-pr/README.md) has the picture and the design). It draws only while the branch has a PR:
+
+- the PR's number and title, and a link to it on GitHub at the right;
+- five chips with a check or a cross: CI (with the reason under it when red, such as a job GitHub refused to start), no conflicts with main, up to date with main, clear of the other open PRs (`release/pr-conflicts.mjs`), review;
+- buttons stacked on the right: `merge` (a merge commit, after a yes), `fix PR` (one prompt to the session with the red lines, only while something is red), `close PR` (after a yes), and `↻` to reload;
+- it reads the PR again every minute and after any `git push` or `gh pr` command in the chat.
+
+Commands: `/pr` (refresh), `/pr hide|show`.
 
 ## hermes-band
 
