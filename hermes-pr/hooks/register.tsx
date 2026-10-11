@@ -199,10 +199,20 @@ const reasonOf = async ($: EngineInterface, cwd: string, detailsUrl: string | nu
 
 const setNote = ($: EngineInterface, note: string | null) => update($, NOTE, () => note)
 
-/** Reads the branch's PR again. `fetch` also brings origin up to date first (/pr and the band's reload; never the timer). */
-const refresh = async ($: EngineInterface, fetch = false): Promise<PrView | null> => {
+/** Where the session stands: its tree and its branch. */
+const whereNow = async ($: EngineInterface) => {
   const cwd = await $.session.cwd()
   const branch = (await run($, ['git', 'rev-parse', '--abbrev-ref', 'HEAD'], cwd)).out.trim()
+  return { cwd, branch, place: `${cwd}\n${branch}` }
+}
+
+/** The tree and branch the PR was last read on: a move to another (a worktree, /cd, a checkout) makes it stale. */
+let readAt = ''
+
+/** Reads the branch's PR again. `fetch` also brings origin up to date first (/pr and the band's reload; never the timer). */
+const refresh = async ($: EngineInterface, fetch = false): Promise<PrView | null> => {
+  const { cwd, branch, place } = await whereNow($)
+  readAt = place
   await update($, BRANCH, () => (branch === '' ? null : branch))
   const done = async (view: PrView | null) => {
     await update($, PR, () => view)
@@ -214,7 +224,8 @@ const refresh = async ($: EngineInterface, fetch = false): Promise<PrView | null
 
   const pr = await run($, ['gh', 'pr', 'view', '--json', FIELDS], cwd)
   const view = pr.code === 0 ? parsePr(pr.out) : null
-  if (view === null) return done(null)
+  /* gh may answer with a PR it found through the branch's upstream config: one whose head is another branch is not this branch's. */
+  if (view === null || view.head !== branch) return done(null)
 
   if (view.ci.state === 'fail') view.ci.reason = await reasonOf($, cwd, view.ci.detailsUrl)
   if (fetch) await run($, ['git', 'fetch', '--quiet', 'origin', view.base], cwd, 120_000)
@@ -233,6 +244,12 @@ const refresh = async ($: EngineInterface, fetch = false): Promise<PrView | null
 const tick = async ($: EngineInterface) => {
   if ((await read($, BUSY)) !== null) return
   await refresh($)
+}
+
+/** At a turn's end and after a worktree move: on another tree or branch than the last read, the PR is read again (or dropped). */
+const afterMove = async ($: EngineInterface) => {
+  if ((await read($, BUSY)) !== null) return
+  if ((await whereNow($)).place !== readAt) await refresh($)
 }
 
 /** merge or close, after the band's yes. One at a time; the result goes to the note and a toast. */
@@ -319,5 +336,21 @@ export const register: Register = on => {
     const ran = await next(e)
     await afterShell($, e.command)
     return ran
+  })
+
+  /* A worktree move, a /cd or a checkout: the session may now stand on another branch, with another PR or none. */
+  on('tool.call', { tool: 'EnterWorktree' }, async ($, e, next) => {
+    const ran = await next(e)
+    await afterMove($)
+    return ran
+  })
+  on('tool.call', { tool: 'ExitWorktree' }, async ($, e, next) => {
+    const ran = await next(e)
+    await afterMove($)
+    return ran
+  })
+  on('turn.complete', async ($, e, next) => {
+    await afterMove($)
+    return next(e)
   })
 }

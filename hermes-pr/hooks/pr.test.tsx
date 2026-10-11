@@ -43,6 +43,8 @@ const GREEN = JSON.stringify({
 const answer = (exitCode: number, stdout: string, stderr = '') => ({ value: { exitCode, stdout, stderr, isStdoutTruncated: false, isStderrTruncated: false } })
 
 type Host = {
+  /** The tree the session stands in; a worktree move changes it. */
+  cwd: string
   branch: string
   /** What `gh pr view` prints; null is "no pull requests found". */
   pr: string | null
@@ -57,7 +59,7 @@ type Host = {
 
 /** Stands for the machine: git and gh answer from the host record, every argv is kept, every state write is seen. */
 const fakeHost = (on: On, host: Host) => {
-  on('session.cwd', () => ({ value: 'D:/Projects/HERMES' }))
+  on('session.cwd', () => ({ value: host.cwd }))
   on('state.set', { plugin: 'hermes-pr' }, (_$, e, next) => {
     host.state[e.key] = e.value
     return next(e)
@@ -84,7 +86,7 @@ const fakeHost = (on: On, host: Host) => {
   })
 }
 
-const host344 = (): Host => ({ branch: 'ship-via-gh', pr: PR_344, behind: '0', conflicts: { code: 0, out: 'Against main (1e61cef3):\n  ok        ship-via-gh\n\nAll clean.\n' }, ran: [], filled: [], state: {} })
+const host344 = (): Host => ({ cwd: 'D:/Projects/HERMES', branch: 'ship-via-gh', pr: PR_344, behind: '0', conflicts: { code: 0, out: 'Against main (1e61cef3):\n  ok        ship-via-gh\n\nAll clean.\n' }, ran: [], filled: [], state: {} })
 
 const prOf = (host: Host) => host.state.pr as PrView | null | undefined
 
@@ -219,4 +221,40 @@ test('a git push in the chat makes hermes-pr read the PR again', async ($, on) =
   expect(host.ran.filter(a => a.startsWith('gh pr view')).length).toBe(before + 1)
   await $.tool.call({ tool: 'Bash', command: 'git status --short' })
   expect(host.ran.filter(a => a.startsWith('gh pr view')).length).toBe(before + 1)
+})
+
+/** A turn's end, as the engine reports it. */
+const turn = (n: number) => ({ reason: 'answer', answer: 'ok', durationMs: 1000, isAborted: false, turnId: 't' + String(n) }) as never
+
+test('a move to another tree or branch drops the old PR at the turn end or after EnterWorktree; a PR of another branch is never shown', async ($, on) => {
+  const host = host344()
+  fakeHost(on, host)
+  on('turn.complete', (_$, e) => ({ text: e.answer }))
+  on('tool.call', { tool: 'EnterWorktree' }, () => ({ result: {} as never }))
+  await $.command.run({ command: 'pr', args: '', ...typed })
+  expect(prOf(host)?.number).toBe(344)
+  const views = () => host.ran.filter(a => a.startsWith('gh pr view')).length
+  const before = views()
+  /* The same tree and branch: a turn's end reads nothing. */
+  await $.turn.complete(turn(1))
+  expect(views()).toBe(before)
+  /* The session moved into a worktree on a branch with no PR: the old PR goes. */
+  host.cwd = 'D:/Projects/HERMES/.claude/worktrees/herme-257-261-godmode-agent'
+  host.branch = 'herme-257-261-godmode-agent'
+  host.pr = null
+  await $.turn.complete(turn(2))
+  expect(views()).toBe(before + 1)
+  expect(prOf(host)).toBe(null)
+  expect(host.state.branch).toBe('herme-257-261-godmode-agent')
+  /* Back in the main tree through ExitWorktree's cousin: the PR returns right after the tool call. */
+  host.cwd = 'D:/Projects/HERMES'
+  host.branch = 'ship-via-gh'
+  host.pr = PR_344
+  await $.tool.call({ tool: 'EnterWorktree' } as never)
+  expect(views()).toBe(before + 2)
+  expect(prOf(host)?.number).toBe(344)
+  /* gh answers #344 (head ship-via-gh) while the session stands on another branch: that PR is not this branch's. */
+  host.branch = 'other-branch'
+  await $.command.run({ command: 'pr', args: '', ...typed })
+  expect(prOf(host)).toBe(null)
 })

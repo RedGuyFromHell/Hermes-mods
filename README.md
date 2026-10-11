@@ -9,7 +9,7 @@ The branch's pull request, read for hermes-band, which draws it as a row under i
 - the PR's number, title and state, a link to it on GitHub, and `↻`;
 - five chips with a check or a cross: CI (with the reason under it when red, such as a job GitHub refused to start), no conflicts with main, up to date with main, clear of the other open PRs (`release/pr-conflicts.mjs`), review;
 - under compact / ship / review, the PR buttons: `merge` (a merge commit, after a yes), `fix PR` (one prompt to the session with the red lines, only while something is red), `close PR` (after a yes);
-- the PR is read again every minute and after any `git push` or `gh pr` command in the chat.
+- the PR is read again every minute, after any `git push` or `gh pr` command in the chat, and when the session moves to another tree or branch (a worktree, `/cd`, a checkout): the old PR never lingers on a new branch, and a PR whose head is another branch is never shown.
 
 Commands: `/pr` (read again), `/pr merge|close` (what the band's yes runs), `/pr fix` (the fix prompt into the box), `/pr hide|show`.
 

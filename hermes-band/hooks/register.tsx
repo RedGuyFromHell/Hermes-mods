@@ -675,59 +675,69 @@ export const register: Register = on => {
     const mineCount = repo === null ? 0 : repo.dirty.length - others.length
     const orphans = servers.filter(s => s.orphan)
     const dot = <Text dimColor> · </Text>
+    /* The dot a chip of the git row starts with: the row wraps between chips, never inside one, and a wrapped line starts with it. */
+    const lead = <Text dimColor>· </Text>
 
     const gitChips =
       repo === null ? (
-        <Text dimColor>no git tree</Text>
+        <Text key="git-none" dimColor>
+          no git tree
+        </Text>
       ) : (
-        <Text>
-          <Text color={C.branch} bold>
-            ⎇ {repo.branch}
-          </Text>
-          <Text dimColor> {repo.head}</Text>
-          {dot}
-          <Text color={C.tree}>{repo.tree === null ? '⌂ main tree' : `⌂ ${repo.tree}`}</Text>
-          {repo.ahead !== null && repo.behind !== null ? (
-            <Text>
-              {dot}
+        [
+          <Text key="git-branch">
+            <Text color={C.branch} bold>
+              ⎇ {repo.branch}
+            </Text>
+            <Text dimColor> {repo.head}</Text>
+          </Text>,
+          <Text key="git-tree">
+            {lead}
+            <Text color={C.tree}>{repo.tree === null ? '⌂ main tree' : `⌂ ${repo.tree}`}</Text>
+          </Text>,
+          repo.ahead !== null && repo.behind !== null ? (
+            <Text key="git-sync">
+              {lead}
               <Text color={repo.behind > 0 ? C.warn : C.ok}>
                 ↑{repo.ahead} ↓{repo.behind}
               </Text>
             </Text>
-          ) : null}
-          {dot}
-          {repo.dirty.length === 0 ? (
-            <Text color={C.ok}>✓ clean</Text>
-          ) : (
-            <Text>
-              <Text color={C.ok}>✎ {mineCount} mine</Text>
-              {others.length > 0 ? (
-                <Text color={C.bad} bold>
-                  {' '}
-                  ⚠ {others.length} not mine
-                </Text>
-              ) : null}
-            </Text>
-          )}
-        </Text>
+          ) : null,
+          <Text key="git-dirty">
+            {lead}
+            {repo.dirty.length === 0 ? (
+              <Text color={C.ok}>✓ clean</Text>
+            ) : (
+              <Text>
+                <Text color={C.ok}>✎ {mineCount} mine</Text>
+                {others.length > 0 ? (
+                  <Text color={C.bad} bold>
+                    {' '}
+                    ⚠ {others.length} not mine
+                  </Text>
+                ) : null}
+              </Text>
+            )}
+          </Text>,
+        ]
       )
 
     const serverChips =
       servers.length === 0 ? (
-        <Text dimColor>{scannedAt === 0 ? 'scanning servers…' : 'no dev servers'}</Text>
-      ) : (
-        <Text>
-          {servers.map((s, i) => (
-            <Text key={`s${s.pid}`}>
-              {i > 0 ? dot : null}
-              <Text color={s.orphan ? C.bad : s.kind === 'api' ? C.api : C.web} bold={s.orphan}>
-                {s.orphan ? '☠ ' : '● '}
-                {s.kind} :{s.ports.join('/') || '?'}
-              </Text>
-              <Text dimColor> {s.tree === null ? '?' : basename(s.tree)}</Text>
-            </Text>
-          ))}
+        <Text key="servers-none" dimColor>
+          {scannedAt === 0 ? 'scanning servers…' : 'no dev servers'}
         </Text>
+      ) : (
+        servers.map((s, i) => (
+          <Text key={`s${s.pid}`}>
+            {i > 0 ? lead : null}
+            <Text color={s.orphan ? C.bad : s.kind === 'api' ? C.api : C.web} bold={s.orphan}>
+              {s.orphan ? '☠ ' : '● '}
+              {s.kind} :{s.ports.join('/') || '?'}
+            </Text>
+            <Text dimColor> {s.tree === null ? '?' : basename(s.tree)}</Text>
+          </Text>
+        ))
       )
 
     /* The PR row: number, title, state, the link, then the chips hermes-pr computed and the reasons under them. */
@@ -805,10 +815,11 @@ export const register: Register = on => {
         </Box>
       )
 
+    /* The band is as wide as the cells it is laid out in, never as its longest line: a long PR title truncates, the git row wraps, and the button column stays in view. */
     return (
-      <Box flexDirection="column">
+      <Box flexDirection="column" width={e.props.bodyColumns}>
       <Box key="band" flexDirection="row" paddingX={1} gap={2}>
-      <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+      <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
         <Box flexDirection="row" flexWrap="wrap" gap={1} alignItems="center">
           {gitChips}
           <Text dimColor>│</Text>
