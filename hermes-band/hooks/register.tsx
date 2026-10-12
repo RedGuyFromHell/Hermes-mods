@@ -815,10 +815,11 @@ export const register: Register = on => {
         </Box>
       )
 
-    /* The band is as wide as the cells it is laid out in, never as its longest line: a long PR title truncates, the git row wraps, and the button column stays in view. */
+    /* The band is as wide as the cells it is laid out in, never as its longest line: a long PR title truncates, the git row wraps, and the button column stays in view.
+       The width sits on the band's own row, not the outer column: the engine refuses its own drawing (rest) under a Box with a width. */
     return (
-      <Box flexDirection="column" width={e.props.bodyColumns}>
-      <Box key="band" flexDirection="row" paddingX={1} gap={2}>
+      <Box flexDirection="column">
+      <Box key="band" flexDirection="row" paddingX={1} gap={2} width={e.props.bodyColumns}>
       <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
         <Box flexDirection="row" flexWrap="wrap" gap={1} alignItems="center">
           {gitChips}
