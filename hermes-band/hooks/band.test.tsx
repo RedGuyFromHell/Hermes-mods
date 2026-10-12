@@ -57,6 +57,8 @@ const USAGE = {
 
 /** Stands for the host: git answers, the PowerShell scan, Stop-Process, the usage figures. */
 const fakeHost = (on: On, host: Host) => {
+  /* Stands for the engine's own band, beneath every mod: the band draws above what it drew. */
+  on('ui.render', { component: 'AbovePrompt' }, ($, e) => $.ui.resolve(e).Text({ children: ['beneath'] }))
   on('session.cwd', () => ({ value: 'D:/Projects/HERMES' }))
   on('session.usage', () => ({ value: USAGE as never }))
   on('process.run', (_$, e) => {
@@ -100,18 +102,18 @@ test('/band forget drops my edits, /band hide empties the band and /band show br
   await $.tool.call({ tool: 'Write', file_path: 'D:/Projects/HERMES/apps/api/src/index.ts', content: 'x' })
   const ui = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
   expect(await ui.find({ text: /1 mine/ })).toBeDefined()
+  /* What the engine drew beneath comes last: the band sits above it. */
+  const texts = (await ui.findAll({ type: 'Text' })).map(t => String(t.text ?? ''))
+  expect(texts.indexOf('beneath')).toBe(texts.length - 1)
   await $.command.run({ command: 'band', args: 'forget', ...typed })
   expect(await ui.find({ text: /1 not mine/ })).toBeDefined()
   await ui.unmount()
   await $.command.run({ command: 'band', args: 'hide', ...typed })
-  let passedOn = false
-  try {
-    const hidden = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
-    await hidden.unmount()
-  } catch (err) {
-    passedOn = /no implementation for ui.render/.test(String(err))
-  }
-  expect(passedOn).toBe(true)
+  /* Hidden, the band passes on: only what the engine drew beneath is there. */
+  const hidden = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
+  expect(await hidden.find({ text: /^beneath$/ })).toBeDefined()
+  expect(await hidden.find({ text: /t129-run-record|not mine/ })).toBeUndefined()
+  await hidden.unmount()
   await $.command.run({ command: 'band', args: 'show', ...typed })
   const shown = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
   expect(await shown.find({ text: /t129-run-record/ })).toBeDefined()
@@ -221,14 +223,10 @@ test('a slash command the session does not know shows its reason under the band'
 test('the band yields to a survey: it draws nothing, so the engine draws', async ($, on) => {
   fakeHost(on, { dirty: '', servers: [], stops: [] })
   await $.command.run({ command: 'band', args: 'refresh', ...typed })
-  let passedOn = false
-  try {
-    const ui = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND, props: { ...BAND.props, hasSurvey: true } })
-    await ui.unmount()
-  } catch (err) {
-    passedOn = /no implementation for ui.render/.test(String(err))
-  }
-  expect(passedOn).toBe(true)
+  const ui = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND, props: { ...BAND.props, hasSurvey: true } })
+  expect(await ui.find({ text: /^beneath$/ })).toBeDefined()
+  expect(await ui.find({ text: /t129-run-record|context/ })).toBeUndefined()
+  await ui.unmount()
 })
 
 test('in the Nerd Castle knowledge base the band steps aside for nerd-band and runs no git scan', async ($, on) => {
@@ -253,11 +251,11 @@ test('in the Nerd Castle knowledge base the band steps aside for nerd-band and r
 })
 
 for (const surface of SURFACES) {
-  test(`the agents chip sits beside the gauges with hermes-agents' counts, and opens its pane (${surface})`, async ($, on) => {
+  test(`the agents chip sits beside the gauges with savvy-progress's counts, and opens its pane (${surface})`, async ($, on) => {
     fakeHost(on, { dirty: '', servers: [], stops: [] })
-    on('state.get', { plugin: 'hermes-agents', key: 'summary' }, () => ({ value: { value: { total: 3, running: 2, done: 1, failed: 0 }, version: 1 } }))
+    on('state.get', { plugin: 'savvy-progress', key: 'agents' }, () => ({ value: { value: [{ status: 'running' }, { status: 'running' }, { status: 'done' }], version: 1 } }))
     const ran: string[] = []
-    on('command.run', { command: 'agents-pane' }, (_$, e) => {
+    on('command.run', { command: 'agents-info' }, (_$, e) => {
       ran.push(e.command)
       return { text: 'opened' }
     })
@@ -273,16 +271,104 @@ for (const surface of SURFACES) {
       expect((await ui.findAll({ type: 'Svg' })).length).toBe(3)
     }
     await ui.press({ key: 'agents-open' })
-    expect(ran).toEqual(['agents-pane'])
+    expect(ran).toEqual(['agents-info'])
     await ui.unmount()
   })
 }
 
-test('without hermes-agents the band draws no agents chip', async ($, on) => {
+test('without savvy-progress the band draws no agents chip', async ($, on) => {
   fakeHost(on, { dirty: '', servers: [], stops: [] })
   await $.command.run({ command: 'band', args: 'refresh', ...typed })
   const ui = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
   expect(await ui.find({ text: /◈ agents|no agents yet/ })).toBeUndefined()
   expect(await ui.find({ key: 'agents-open' })).toBeUndefined()
   await ui.unmount()
+})
+
+/** The branch's PR as hermes-pr publishes it: two red chips, the billing text under them. */
+const PR_344 = {
+  number: 344,
+  url: 'https://github.com/RedGuyFromHell/Hermes/pull/344',
+  title: 'feat(ship): the Clean Historian opens the PR with gh',
+  state: 'open' as const,
+  base: 'main',
+  head: 'ship-via-gh',
+  lines: [
+    { ok: false, text: 'CI failed: check', detail: 'The job was not started because recent account payments have failed' },
+    { ok: true, text: 'no conflicts with main', detail: null },
+    { ok: false, text: '9 behind main', detail: null },
+    { ok: true, text: 'clear of the other open PRs', detail: null },
+    { ok: true, text: 'review: none required', detail: null },
+  ],
+}
+
+for (const surface of SURFACES) {
+  test(`with hermes-pr loaded the band draws the PR row and its buttons; merge and close ask first, fix PR runs /pr fix (${surface})`, async ($, on) => {
+    fakeHost(on, { dirty: '', servers: [], stops: [] })
+    on('state.get', { plugin: 'hermes-pr', key: 'pr' }, () => ({ value: { value: PR_344, version: 1 } }))
+    on('state.get', { plugin: 'hermes-pr', key: 'fix' }, () => ({ value: { value: 'Fix PR #344: CI failed: check', version: 1 } }))
+    const ran: string[] = []
+    on('command.run', { command: 'pr' }, (_$, e) => {
+      ran.push(`/pr ${e.args}`.trim())
+      return { text: 'done' }
+    })
+    on('prompt.submit', (_$, e) => {
+      ran.push(`prompt: ${e.text}`)
+      return { text: e.text }
+    })
+    await $.command.run({ command: 'band', args: 'refresh', ...typed })
+    const ui = await $.ui.mount({ plugin: 'hermes-band', surface, ...BAND })
+    expect(await ui.find({ text: /#344/ })).toBeDefined()
+    expect(await ui.find({ text: /open on GitHub/ })).toBeDefined()
+    expect(await ui.find({ text: /CI failed: check/ })).toBeDefined()
+    expect(await ui.find({ text: /payments have failed/ })).toBeDefined()
+    expect(await ui.find({ text: /9 behind main/ })).toBeDefined()
+    expect(await ui.find({ text: /review: none required/ })).toBeDefined()
+    expect(await ui.find({ key: 'merge' })).toBeDefined()
+    expect(await ui.find({ key: 'fix' })).toBeDefined()
+    expect(await ui.find({ key: 'close-pr' })).toBeDefined()
+    await ui.press({ key: 'merge' })
+    expect(await ui.find({ text: /merge #344 into main with 2 red\?/ })).toBeDefined()
+    await ui.press({ key: 'pr-no' })
+    expect(ran).toEqual([])
+    await ui.press({ key: 'merge' })
+    await ui.press({ key: 'pr-yes' })
+    expect(ran).toEqual(['/pr merge'])
+    await ui.press({ key: 'fix' })
+    expect(ran).toEqual(['/pr merge', 'prompt: Fix PR #344: CI failed: check'])
+    expect(await ui.find({ text: /fix PR: sent to the session/ })).toBeDefined()
+    await ui.press({ key: 'close-pr' })
+    expect(await ui.find({ text: /close #344\?/ })).toBeDefined()
+    await ui.press({ key: 'pr-yes' })
+    expect(ran).toEqual(['/pr merge', 'prompt: Fix PR #344: CI failed: check', '/pr close'])
+    await ui.press({ key: 'pr-reload' })
+    expect(ran).toEqual(['/pr merge', 'prompt: Fix PR #344: CI failed: check', '/pr close', '/pr'])
+    await ui.unmount()
+  })
+}
+
+test('a merged PR gets the release reminder and no buttons; /pr hide takes the row down; without hermes-pr there is no row', async ($, on) => {
+  fakeHost(on, { dirty: '', servers: [], stops: [] })
+  let pr: unknown = { ...PR_344, state: 'merged', lines: PR_344.lines.map(l => ({ ...l, ok: true, detail: null })) }
+  let hidden = false
+  on('state.get', { plugin: 'hermes-pr', key: 'pr' }, () => ({ value: { value: pr, version: 1 } }))
+  on('state.get', { plugin: 'hermes-pr', key: 'hidden' }, () => ({ value: { value: hidden, version: 1 } }))
+  await $.command.run({ command: 'band', args: 'refresh', ...typed })
+  const merged = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
+  expect(await merged.find({ text: /#344/ })).toBeDefined()
+  expect(await merged.find({ text: /release with/ })).toBeDefined()
+  expect(await merged.find({ key: 'merge' })).toBeUndefined()
+  expect(await merged.find({ key: 'close-pr' })).toBeUndefined()
+  await merged.unmount()
+  hidden = true
+  const gone = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
+  expect(await gone.find({ text: /#344/ })).toBeUndefined()
+  expect(await gone.find({ text: /t129-run-record/ })).toBeDefined()
+  await gone.unmount()
+  hidden = false
+  pr = null
+  const none = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
+  expect(await none.find({ text: /#344|GitHub/ })).toBeUndefined()
+  expect(await none.find({ key: 'ship' })).toBeDefined()
+  await none.unmount()
 })

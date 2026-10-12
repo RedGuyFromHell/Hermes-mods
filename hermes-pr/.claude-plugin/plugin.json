@@ -1,0 +1,10 @@
+{
+  "name": "hermes-pr",
+  "version": "0.1.0",
+  "description": "A pane for the branch's pull request: the PR as a link, five status lines (CI, conflicts with main, behind main, the other open PRs, review) with a check or a cross and the reason when red, and the buttons to merge it, fix it from the chat or close it.",
+  "types": "./types/index.d.ts",
+  "author": {
+    "name": "Andrei Albu",
+    "email": "andrei@nerdcastle.eu"
+  }
+}

@@ -28,8 +28,15 @@ const HIDDEN = { plugin: 'hermes-band', key: 'hidden' } as const
 const NOTE = { plugin: 'hermes-band', key: 'note' } as const
 const SCANNED = { plugin: 'hermes-band', key: 'scannedAt' } as const
 const CONTEXT = { plugin: 'hermes-band', key: 'context' } as const
-/** hermes-agents' counts: read here, written by that mod alone. */
-const AGENTS = { plugin: 'hermes-agents', key: 'summary' } as const
+/** savvy-progress's runs: read here, written by that mod alone. */
+const AGENTS = { plugin: 'savvy-progress', key: 'agents' } as const
+/** hermes-pr's pull request: read here, written by that mod alone; its buttons run /pr there. */
+const PR = { plugin: 'hermes-pr', key: 'pr' } as const
+const PR_FIX = { plugin: 'hermes-pr', key: 'fix' } as const
+const PR_BUSY = { plugin: 'hermes-pr', key: 'busy' } as const
+const PR_NOTE = { plugin: 'hermes-pr', key: 'note' } as const
+const PR_HIDDEN = { plugin: 'hermes-pr', key: 'hidden' } as const
+const CONFIRM_PR = { plugin: 'hermes-band', key: 'confirmPr' } as const
 
 const getContext = async ($: EngineInterface): Promise<Context | null> => (await $.state.get(CONTEXT)).value ?? null
 const getRepo = async ($: EngineInterface): Promise<Repo | null> => (await $.state.get(REPO)).value ?? null
@@ -40,8 +47,11 @@ const getHidden = async ($: EngineInterface): Promise<boolean> => (await $.state
 const getNote = async ($: EngineInterface): Promise<string | null> => (await $.state.get(NOTE)).value ?? null
 const getScanned = async ($: EngineInterface): Promise<number> => (await $.state.get(SCANNED)).value ?? 0
 
+const getConfirmPr = async ($: EngineInterface): Promise<'merge' | 'close' | null> => (await $.state.get(CONFIRM_PR)).value ?? null
+
 const setNote = ($: EngineInterface, note: string | null) => $.state.set(NOTE, note)
 const setConfirm = ($: EngineInterface, on: boolean) => $.state.set(CONFIRM, on)
+const setConfirmPr = ($: EngineInterface, kind: 'merge' | 'close' | null) => $.state.set(CONFIRM_PR, kind)
 const setHidden = ($: EngineInterface, on: boolean) => $.state.set(HIDDEN, on)
 
 /* ---------- colors ---------- */
@@ -287,6 +297,14 @@ const ringSvg = (percent: number, color: string) => {
   )
 }
 
+/** savvy-progress's runs, counted the way the ring draws them. */
+const summarize = (runs: readonly { status: string }[]): AgentsSummary => ({
+  total: runs.length,
+  running: runs.filter(r => r.status === 'running').length,
+  done: runs.filter(r => r.status === 'done').length,
+  failed: runs.filter(r => r.status === 'failed').length,
+})
+
 /** The agents ring: one arc per share, running green, done blue, failed red, clockwise from the top. 44 px square, as the limit rings. */
 const agentsRingSvg = (a: AgentsSummary) => {
   const r = 17
@@ -353,6 +371,28 @@ const submit = async ($: EngineInterface, command: string) => {
     await $.command.run({ command })
   } catch (err) {
     await setNote($, `/${command} failed: ${message(err)}`)
+  }
+}
+
+/** The PR buttons: hermes-pr's `/pr merge | close`, or `/pr` alone to read the PR again. */
+const submitPr = async ($: EngineInterface, args: string) => {
+  await setConfirmPr($, null)
+  try {
+    await $.command.run({ command: 'pr', args })
+  } catch (err) {
+    await setNote($, `/pr ${args} failed: ${message(err)}`)
+  }
+}
+
+/** fix PR: the prompt hermes-pr prepared goes to the session as a turn of its own (a press may submit one; a slash command may not). */
+const submitFix = async ($: EngineInterface) => {
+  const text = (await $.state.get(PR_FIX)).value ?? null
+  if (text === null) return
+  try {
+    await $.prompt.submit({ text })
+    await setNote($, 'fix PR: sent to the session')
+  } catch (err) {
+    await setNote($, `fix PR failed: ${message(err)}`)
   }
 }
 
@@ -461,6 +501,8 @@ export const register: Register = on => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if ((await isAway($)) || e.props.hasSurvey || (await getHidden($))) return next(e)
+    /* The mods beneath draw first (cache-tax puts its row under them); the band goes above what they drew. */
+    const rest = await next(e)
     const repo = await getRepo($)
     const servers = await getServers($)
     const mine = new Set(await getMine($))
@@ -468,9 +510,17 @@ export const register: Register = on => {
     const note = await getNote($)
     const scannedAt = await getScanned($)
     const context = await getContext($)
-    /* Null when hermes-agents is not loaded: then the band draws no agents chip. */
-    const agents = (await $.state.get(AGENTS)).value ?? null
-    const { Box, Text, Button } = $.ui.resolve(e)
+    /* Null when savvy-progress is not loaded: then the band draws no agents chip. */
+    const runs = (await $.state.get(AGENTS)).value ?? null
+    const agents = runs === null ? null : summarize(runs)
+    /* Null when hermes-pr is not loaded, the branch has no PR, or /pr hide: then no PR row and no PR buttons. */
+    const prHidden = (await $.state.get(PR_HIDDEN)).value ?? false
+    const pr = prHidden ? null : ((await $.state.get(PR)).value ?? null)
+    const prBusy = (await $.state.get(PR_BUSY)).value ?? null
+    const prFix = (await $.state.get(PR_FIX)).value ?? null
+    const prNote = (await $.state.get(PR_NOTE)).value ?? null
+    const confirmPr = await getConfirmPr($)
+    const { Box, Text, Button, Link } = $.ui.resolve(e)
 
     /* The context row: a headline, a bar of coloured cells, one legend chip per slice. */
     let contextRow = null
@@ -542,11 +592,11 @@ export const register: Register = on => {
           </Box>
         )
       })
-      /* The agents chip sits beside the gauges, in the room they leave: hermes-agents' counts, and a press opens its pane. */
+      /* The agents chip sits beside the gauges, in the room they leave: savvy-progress's counts, and a press opens its pane. */
       let agentsChip = null
       if (agents !== null) {
         const open = (
-          <Button key="agents-open" plain dimColor hover={{ color: C.tree }} onPress={() => void submit($, 'agents-pane')}>
+          <Button key="agents-open" plain dimColor hover={{ color: C.tree }} onPress={() => void submit($, 'agents-info')}>
             {Svg === null ? '›' : 'open'}
           </Button>
         )
@@ -625,64 +675,152 @@ export const register: Register = on => {
     const mineCount = repo === null ? 0 : repo.dirty.length - others.length
     const orphans = servers.filter(s => s.orphan)
     const dot = <Text dimColor> · </Text>
+    /* The dot a chip of the git row starts with: the row wraps between chips, never inside one, and a wrapped line starts with it. */
+    const lead = <Text dimColor>· </Text>
 
     const gitChips =
       repo === null ? (
-        <Text dimColor>no git tree</Text>
+        <Text key="git-none" dimColor>
+          no git tree
+        </Text>
       ) : (
-        <Text>
-          <Text color={C.branch} bold>
-            ⎇ {repo.branch}
-          </Text>
-          <Text dimColor> {repo.head}</Text>
-          {dot}
-          <Text color={C.tree}>{repo.tree === null ? '⌂ main tree' : `⌂ ${repo.tree}`}</Text>
-          {repo.ahead !== null && repo.behind !== null ? (
-            <Text>
-              {dot}
+        [
+          <Text key="git-branch">
+            <Text color={C.branch} bold>
+              ⎇ {repo.branch}
+            </Text>
+            <Text dimColor> {repo.head}</Text>
+          </Text>,
+          <Text key="git-tree">
+            {lead}
+            <Text color={C.tree}>{repo.tree === null ? '⌂ main tree' : `⌂ ${repo.tree}`}</Text>
+          </Text>,
+          repo.ahead !== null && repo.behind !== null ? (
+            <Text key="git-sync">
+              {lead}
               <Text color={repo.behind > 0 ? C.warn : C.ok}>
                 ↑{repo.ahead} ↓{repo.behind}
               </Text>
             </Text>
-          ) : null}
-          {dot}
-          {repo.dirty.length === 0 ? (
-            <Text color={C.ok}>✓ clean</Text>
-          ) : (
-            <Text>
-              <Text color={C.ok}>✎ {mineCount} mine</Text>
-              {others.length > 0 ? (
-                <Text color={C.bad} bold>
-                  {' '}
-                  ⚠ {others.length} not mine
-                </Text>
-              ) : null}
-            </Text>
-          )}
-        </Text>
+          ) : null,
+          <Text key="git-dirty">
+            {lead}
+            {repo.dirty.length === 0 ? (
+              <Text color={C.ok}>✓ clean</Text>
+            ) : (
+              <Text>
+                <Text color={C.ok}>✎ {mineCount} mine</Text>
+                {others.length > 0 ? (
+                  <Text color={C.bad} bold>
+                    {' '}
+                    ⚠ {others.length} not mine
+                  </Text>
+                ) : null}
+              </Text>
+            )}
+          </Text>,
+        ]
       )
 
     const serverChips =
       servers.length === 0 ? (
-        <Text dimColor>{scannedAt === 0 ? 'scanning servers…' : 'no dev servers'}</Text>
-      ) : (
-        <Text>
-          {servers.map((s, i) => (
-            <Text key={`s${s.pid}`}>
-              {i > 0 ? dot : null}
-              <Text color={s.orphan ? C.bad : s.kind === 'api' ? C.api : C.web} bold={s.orphan}>
-                {s.orphan ? '☠ ' : '● '}
-                {s.kind} :{s.ports.join('/') || '?'}
-              </Text>
-              <Text dimColor> {s.tree === null ? '?' : basename(s.tree)}</Text>
-            </Text>
-          ))}
+        <Text key="servers-none" dimColor>
+          {scannedAt === 0 ? 'scanning servers…' : 'no dev servers'}
         </Text>
+      ) : (
+        servers.map((s, i) => (
+          <Text key={`s${s.pid}`}>
+            {i > 0 ? lead : null}
+            <Text color={s.orphan ? C.bad : s.kind === 'api' ? C.api : C.web} bold={s.orphan}>
+              {s.orphan ? '☠ ' : '● '}
+              {s.kind} :{s.ports.join('/') || '?'}
+            </Text>
+            <Text dimColor> {s.tree === null ? '?' : basename(s.tree)}</Text>
+          </Text>
+        ))
       )
 
+    /* The PR row: number, title, state, the link, then the chips hermes-pr computed and the reasons under them. */
+    const openPr = pr !== null && (pr.state === 'open' || pr.state === 'draft') ? pr : null
+    const prRed = pr === null ? [] : pr.lines.filter(l => l.ok === false)
+    const prGreen = pr !== null && pr.lines.length > 0 && pr.lines.every(l => l.ok === true)
+    const prReasons = prRed.map(l => l.detail).filter((d): d is string => d !== null && d !== '')
+    const prRow =
+      pr === null ? null : (
+        <Box key="pr" flexDirection="column">
+          <Box flexDirection="row" flexWrap="wrap" gap={1} alignItems="center">
+            <Text wrap="truncate-end">
+              <Text color={C.warn} bold>
+                ⎇ #{pr.number}{' '}
+              </Text>
+              <Text bold>{pr.title}</Text>
+              {dot}
+              <Text color={pr.state === 'merged' ? C.branch : pr.state === 'closed' ? C.bad : pr.state === 'draft' ? C.warn : C.ok} bold>
+                {pr.state}
+              </Text>
+            </Text>
+            <Link href={pr.url} label="open on GitHub ↗" />
+            <Button key="pr-reload" plain dimColor hover={{ color: C.tree }} onPress={() => void submitPr($, '')}>
+              ↻
+            </Button>
+            {openPr !== null && confirmPr !== null ? (
+              <Box gap={1}>
+                <Text color={C.bad} bold>
+                  {confirmPr === 'merge' ? `merge #${openPr.number} into ${openPr.base}${prRed.length > 0 ? ` with ${prRed.length} red` : ''}?` : `close #${openPr.number}?`}
+                </Text>
+                <Button key="pr-yes" variant="primary" onPress={() => void submitPr($, confirmPr)}>
+                  yes
+                </Button>
+                <Button key="pr-no" onPress={() => void setConfirmPr($, null)}>
+                  no
+                </Button>
+              </Box>
+            ) : null}
+          </Box>
+          <Text wrap="truncate-end">
+            {pr.lines.map((l, i) => (
+              <Text key={`pr-line-${i}`}>
+                {i > 0 ? dot : null}
+                <Text color={l.ok === true ? C.ok : l.ok === false ? C.bad : C.warn} bold>
+                  {l.ok === true ? '✓' : l.ok === false ? '✗' : '…'}{' '}
+                </Text>
+                <Text dimColor={l.ok === null}>{l.text}</Text>
+              </Text>
+            ))}
+            {prBusy !== null ? (
+              <Text>
+                {dot}
+                <Text color={C.warn} bold>
+                  {prBusy === 'merge' ? 'merging…' : 'closing…'}
+                </Text>
+              </Text>
+            ) : null}
+          </Text>
+          {prReasons.length > 0 ? (
+            <Text dimColor wrap="truncate-end">
+              {`  ${prReasons.join(' · ')}`}
+            </Text>
+          ) : null}
+          {pr.state === 'merged' ? (
+            <Text wrap="truncate-end">
+              <Text dimColor>  merged · merging deploys nothing: release with </Text>
+              <Text color={C.tree}>node release/release.mjs</Text>
+            </Text>
+          ) : null}
+          {prNote !== null ? (
+            <Text dimColor wrap="truncate-end">
+              {`  ${prNote}`}
+            </Text>
+          ) : null}
+        </Box>
+      )
+
+    /* The band is as wide as the cells it is laid out in, never as its longest line: a long PR title truncates, the git row wraps, and the button column stays in view.
+       The width sits on the band's own row, not the outer column: the engine refuses its own drawing (rest) under a Box with a width. */
     return (
-      <Box key="band" flexDirection="row" paddingX={1} gap={2}>
-      <Box flexDirection="column" flexGrow={1} flexShrink={1}>
+      <Box flexDirection="column">
+      <Box key="band" flexDirection="row" paddingX={1} gap={2} width={e.props.bodyColumns}>
+      <Box flexDirection="column" flexGrow={1} flexShrink={1} minWidth={0}>
         <Box flexDirection="row" flexWrap="wrap" gap={1} alignItems="center">
           {gitChips}
           <Text dimColor>│</Text>
@@ -707,6 +845,7 @@ export const register: Register = on => {
             )
           ) : null}
         </Box>
+        {prRow}
         {contextRow}
         {others.length > 0 ? (
           <Text color={C.bad} wrap="truncate-end">
@@ -733,6 +872,21 @@ export const register: Register = on => {
           <Button key="review" hotkey="v" hover={{ color: C.branch, bold: true }} onPress={() => void submit($, 'clean-code-review')}>
             review
           </Button>
+          {openPr !== null && prBusy === null ? (
+            <Button key="merge" hotkey="m" {...(prGreen ? { variant: 'primary' as const } : {})} hover={{ color: C.ok, bold: true }} onPress={() => void setConfirmPr($, 'merge')}>
+              merge
+            </Button>
+          ) : null}
+          {openPr !== null && prBusy === null && prFix !== null ? (
+            <Button key="fix" hotkey="f" hover={{ color: C.warn, bold: true }} onPress={() => void submitFix($)}>
+              fix PR
+            </Button>
+          ) : null}
+          {openPr !== null && prBusy === null ? (
+            <Button key="close-pr" hotkey="x" hover={{ color: C.bad, bold: true }} onPress={() => void setConfirmPr($, 'close')}>
+              close PR
+            </Button>
+          ) : null}
         </Box>
         <Box gap={1} marginTop={1}>
           <Button key="refresh" dimColor hover={{ color: C.tree }} onPress={() => void refreshAll($)}>
@@ -743,6 +897,8 @@ export const register: Register = on => {
           </Button>
         </Box>
       </Box>
+      </Box>
+      {rest ?? null}
       </Box>
     )
   })

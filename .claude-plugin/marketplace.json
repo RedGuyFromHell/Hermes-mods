@@ -1,7 +1,7 @@
 {
   "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
   "name": "hermes-mods",
-  "description": "Claude Code mods built for the Hermes project: a status band above the prompt and a house-rules guard.",
+  "description": "Claude Code mods built for the Hermes project: a status band above the prompt, a house-rules guard, and a diff pane that follows the filetree selection.",
   "owner": {
     "name": "Andrei Albu",
     "email": "andrei@nerdcastle.eu"
@@ -10,29 +10,48 @@
     {
       "name": "hermes-band",
       "description": "A colored band above the prompt: branch, worktree, dirty files another session touched, the context window with a hover bar and two limit gauges, the api/web dev servers with a stop-orphans button, and compact / ship / review buttons.",
-      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
+      "author": {
+        "name": "Andrei Albu",
+        "email": "andrei@nerdcastle.eu"
+      },
       "source": "./hermes-band",
-      "category": "productivity"
-    },
-    {
-      "name": "hermes-agents",
-      "description": "An agents pane in hermes-band's colors: every subagent with its name, model, status, run time and what it is doing now; select one to see its last steps and answer, message it or stop it. hermes-band shows its counts beside the limit gauges.",
-      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
-      "source": "./hermes-agents",
       "category": "productivity"
     },
     {
       "name": "hermes-guard",
       "description": "Hermes house rules as hooks: stage by path, no code commit without a green health gate, hands-off paths behind /guard unlock, no test skips or deletes, no em-dashes in app source, subagents on Sonnet.",
-      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
+      "author": {
+        "name": "Andrei Albu",
+        "email": "andrei@nerdcastle.eu"
+      },
       "source": "./hermes-guard",
       "category": "development"
     },
     {
       "name": "nerd-band",
       "description": "hermes-band for the Nerd Castle knowledge base: branch, worktree, files that are not this session's, the theme / workbench / etsy repos, a pull button when the other station pushed, the theme dev and video preview servers, and the context window.",
-      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
+      "author": {
+        "name": "Andrei Albu",
+        "email": "andrei@nerdcastle.eu"
+      },
       "source": "./nerd-band",
+      "category": "productivity"
+    },
+    {
+      "name": "diff-follow",
+      "description": "The desktop app diff pane follows the file selected in the filetree pane: click a changed file there and its diff scrolls into view; /difffollow on | off | scope all | scope uncommitted.",
+      "author": {
+        "name": "Andrei Albu",
+        "email": "andrei@nerdcastle.eu"
+      },
+      "source": "./diff-follow",
+      "category": "productivity"
+    },
+    {
+      "name": "hermes-pr",
+      "description": "The branch's pull request for hermes-band, which draws it as a row in the band: the PR as a link, five status chips (CI with its reason, conflicts with main, behind main, the other open PRs, review) with a check or a cross, and merge / fix PR / close PR buttons; /pr reads it again, /pr merge|close|fix, /pr hide|show.",
+      "author": { "name": "Andrei Albu", "email": "andrei@nerdcastle.eu" },
+      "source": "./hermes-pr",
       "category": "productivity"
     }
   ]
