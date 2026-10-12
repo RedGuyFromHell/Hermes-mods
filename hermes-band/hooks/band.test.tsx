@@ -303,7 +303,7 @@ const PR_344 = {
 }
 
 for (const surface of SURFACES) {
-  test(`with hermes-pr loaded the band draws the PR row and its buttons; merge and close ask first, fix PR runs /pr fix (${surface})`, async ($, on) => {
+  test(`with hermes-pr loaded the PR band sits above the band with its buttons; merge and close ask first, fix PR runs /pr fix (${surface})`, async ($, on) => {
     fakeHost(on, { dirty: '', servers: [], stops: [] })
     on('state.get', { plugin: 'hermes-pr', key: 'pr' }, () => ({ value: { value: PR_344, version: 1 } }))
     on('state.get', { plugin: 'hermes-pr', key: 'fix' }, () => ({ value: { value: 'Fix PR #344: CI failed: check', version: 1 } }))
@@ -318,8 +318,10 @@ for (const surface of SURFACES) {
     })
     await $.command.run({ command: 'band', args: 'refresh', ...typed })
     const ui = await $.ui.mount({ plugin: 'hermes-band', surface, ...BAND })
+    expect(await ui.find({ key: 'pr-band' })).toBeDefined()
     expect(await ui.find({ text: /#344/ })).toBeDefined()
     expect(await ui.find({ text: /open on GitHub/ })).toBeDefined()
+    expect(await ui.find({ key: 'pr-dismiss' })).toBeUndefined()
     expect(await ui.find({ text: /CI failed: check/ })).toBeDefined()
     expect(await ui.find({ text: /payments have failed/ })).toBeDefined()
     expect(await ui.find({ text: /9 behind main/ })).toBeDefined()
@@ -347,7 +349,7 @@ for (const surface of SURFACES) {
   })
 }
 
-test('a merged PR gets the release reminder and no buttons; /pr hide takes the row down; without hermes-pr there is no row', async ($, on) => {
+test('a merged PR gets the release reminder, no PR buttons and a × that puts its band away; /pr hide takes the row down; without hermes-pr there is no row', async ($, on) => {
   fakeHost(on, { dirty: '', servers: [], stops: [] })
   let pr: unknown = { ...PR_344, state: 'merged', lines: PR_344.lines.map(l => ({ ...l, ok: true, detail: null })) }
   let hidden = false
@@ -359,6 +361,9 @@ test('a merged PR gets the release reminder and no buttons; /pr hide takes the r
   expect(await merged.find({ text: /release with/ })).toBeDefined()
   expect(await merged.find({ key: 'merge' })).toBeUndefined()
   expect(await merged.find({ key: 'close-pr' })).toBeUndefined()
+  await merged.press({ key: 'pr-dismiss' })
+  expect(await merged.find({ key: 'pr-band' })).toBeUndefined()
+  expect(await merged.find({ key: 'ship' })).toBeDefined()
   await merged.unmount()
   hidden = true
   const gone = await $.ui.mount({ plugin: 'hermes-band', surface: 'terminal', ...BAND })
