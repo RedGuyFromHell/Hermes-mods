@@ -111,6 +111,8 @@ declare module 'claude-code' {
       confirmStop: boolean
       /** The PR button pressed once, waiting for its yes or no. */
       confirmPr: 'merge' | 'close' | null
+      /** The merged or closed PR put away with the PR band's ×: that PR's band stays down, the next PR shows again. */
+      dismissedPr: number | null
       hidden: boolean
       /** One short line under the band: the last action or the last error; null for none. */
       note: string | null

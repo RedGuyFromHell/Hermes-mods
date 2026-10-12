@@ -1,23 +1,27 @@
 # hermes-pr
 
-The branch's pull request, read for hermes-band: the PR as a link, five status chips with a green check or a red cross and the reason under them, and the merge / fix PR / close PR buttons, all drawn **inside the band**. Built for Hermes, where `/ship` has the Clean Historian open the PR with `gh pr create` and the app has no PR pane of its own.
+The branch's pull request, read for hermes-band: the PR as a link, five status chips with a green check or a red cross and the reason under them, and the merge / fix PR / close PR buttons, drawn by hermes-band as **a PR band of its own, above the band**. Built for Hermes, where `/ship` has the Clean Historian open the PR with `gh pr create` and the app has no PR pane of its own.
 
-**Built 2026-10-11.** The first cut was a pane, the second a card above the band; Andrei looked at both live and asked for the PR folded into the band itself. So this mod draws nothing: it reads the PR and runs the actions, and publishes the result in `$.state` under `hermes-pr`; hermes-band reads that and draws the PR row under its git row, with the PR buttons under compact / ship / review. Without hermes-band loaded nothing shows. Commands: `/pr` reads the PR again, `/pr merge` and `/pr close` act (the band's buttons run these after their yes), `/pr fix` puts the fix prompt in the prompt box, `/pr hide` and `/pr show`. Install from the marketplace: `/plugin install hermes-pr --marketplace RedGuyFromHell/Hermes-mods`; on Andrei's machine it loads through `CLAUDE_CODE_PLUGIN_DIRS`.
+**Built 2026-10-11.** The first cut was a pane, the second a card above the band; Andrei looked at both live and asked for the PR folded into the band itself; on 2026-10-12 he asked for it back in its own band above, drawn by hermes-band (a separate mod loaded later draws *below* the band, so the band draws both boxes). So this mod draws nothing: it reads the PR and runs the actions, and publishes the result in `$.state` under `hermes-pr`; hermes-band reads that and draws the PR band above its own, with the PR buttons on the PR band's right. Without hermes-band loaded nothing shows. Commands: `/pr` reads the PR again, `/pr merge` and `/pr close` act (the band's buttons run these after their yes), `/pr fix` puts the fix prompt in the prompt box, `/pr hide` and `/pr show`. Install from the marketplace: `/plugin install hermes-pr --marketplace RedGuyFromHell/Hermes-mods`; on Andrei's machine it loads through `CLAUDE_CODE_PLUGIN_DIRS`.
 
-Checked with the app's engine (2.1.295): `claude plugin validate`, `tsc -p` (with `node --max-old-space-size=12288`, the engine's types are large), `claude plugin test` here (6 tests: the helpers, the state `/pr` publishes, merge and close, fix, hide and show, the refresh after a push) and in hermes-band (the PR row, the buttons and their confirm step, a merged PR, the hidden row, no PR).
+Checked with the app's engine (2.1.295): `claude plugin validate`, `tsc -p` (with `node --max-old-space-size=12288`, the engine's types are large), `claude plugin test` here (6 tests: the helpers, the state `/pr` publishes, merge and close, fix, hide and show, the refresh after a push) and in hermes-band (the PR band, the buttons and their confirm step, a merged PR and its ×, the hidden band, no PR).
 
-## What the band shows
+## What the PR band shows
 
 ```
- ⎇ ship-via-gh 9535ff36 · ⌂ main tree · ↑0 ↓0 · ✓ clean │ no dev servers                      compact
- ⎇ #344 feat(ship): the Clean Historian opens the PR ... · open   open on GitHub ↗  ↻            ship
- ✗ CI failed: check · ✓ no conflicts with main · ✗ 9 behind main · ✓ clear of the other open PRs · ✓ review: none required     review
-   The job was not started because recent account payments have failed or your spending limit needs to be increased            merge
- ◆ context 82k of 1M · 8% · compacts at 967k                                                   fix PR
- ...                                                                                            close PR
+╭──────────────────────────────────────────────────────────────────────────────────────────────╮
+│ ⎇ #344 feat(ship): the Clean Historian opens the PR ... · open   open on GitHub ↗  ↻   merge  │
+│ ✗ CI failed: check · ✓ no conflicts with main · ✗ 9 behind main · ✓ clear of …          fix PR │
+│ The job was not started because recent account payments have failed ...               close PR │
+╰──────────────────────────────────────────────────────────────────────────────────────────────╯
+ ⎇ ship-via-gh 9535ff36 · ⌂ main tree · ↑0 ↓0 · ✓ clean │ no dev servers                 compact
+ ◆ context 82k of 1M · 8% · compacts at 967k                                              ship
+ ...                                                                                       review
 ```
 
-- **The PR row:** the number and title, the PR's state (`open`, `draft`, `merged`, `closed`), a `Link` to the PR (the desktop draws an anchor, the terminal an OSC 8 span) and `↻`, which runs `/pr`.
+The PR band is a rounded box in the band's amber, drawn only while the branch has a PR (and not after `/pr hide`). A merged or closed PR shrinks it to the title row and, when merged, the release reminder, with a `×` that puts that PR's band away (`hermes-band.dismissedPr`); the next PR shows again.
+
+- **The title row:** the number and title, the PR's state (`open`, `draft`, `merged`, `closed`), a `Link` to the PR (the desktop draws an anchor, the terminal an OSC 8 span) and `↻`, which runs `/pr`.
 - **Five chips**, each `✓` (green) or `✗` (red), `…` (dim) while unknown:
   1. **CI.** From `gh pr view --json statusCheckRollup`: green when every check concluded `SUCCESS` (or `SKIPPED`/`NEUTRAL`), pending while one runs, red otherwise. When red, the reason goes on the line under the chips: for a job that never started, the annotation text (`gh api repos/<owner>/<repo>/check-runs/<id>/annotations`, the id from the rollup's `detailsUrl`). The billing refusal of 2026-10-11 is exactly the case the reason exists for.
   2. **No conflicts with main.** `mergeable` from `gh pr view`: `MERGEABLE` green, `CONFLICTING` red, `UNKNOWN` dim (GitHub is still computing).
@@ -25,8 +29,8 @@ Checked with the app's engine (2.1.295): `claude plugin validate`, `tsc -p` (wit
   4. **Clear of the other open PRs.** `node release/pr-conflicts.mjs --no-fetch` (exit 0 green, 2 red with the pairs it printed, 1 red "conflicts with main"). Only when the repo has the script; otherwise the chip is not drawn. This is the one line GitHub cannot show.
   5. **Review.** `reviewDecision`: `APPROVED` green, `CHANGES_REQUESTED` red, `REVIEW_REQUIRED` red "a review is required", empty green "none required" (the repo requires no reviewer today).
 - **Under the chips:** the reasons (dim) when something red has one; after a merge the release reminder, because merging deploys nothing in Hermes; the last action's result (`merged #344`, or `gh`'s refusal, one line).
-- **Buttons**, in the band's right column under compact / ship / review, only while the PR is open:
-  - `merge` (hotkey m): asks first, in the PR row (`merge #344 into main with 2 red? [yes] [no]`, like the band's stop-orphans). The yes runs `/pr merge`: `gh pr merge <n> --merge` (a merge commit, as every PR so far; no `--delete-branch`, the release script deletes the branch after `prod` moves). `variant="primary"` when every chip is green; with a red one it still works (the person's call).
+- **Buttons**, in the PR band's right column, only while the PR is open:
+  - `merge` (hotkey m): asks first, in the title row (`merge #344 into main with 2 red? [yes] [no]`, like the band's stop-orphans). The yes runs `/pr merge`: `gh pr merge <n> --merge` (a merge commit, as every PR so far; no `--delete-branch`, the release script deletes the branch after `prod` moves). `variant="primary"` when every chip is green; with a red one it still works (the person's call).
   - `fix PR` (hotkey f): drawn only while a chip is red. The band submits the prompt hermes-pr prepared (`hermes-pr.fix`) to the session as a turn of its own: the PR number and URL, the red lines verbatim, and the ask: merge `origin/main` in if behind or conflicting, run `node checks/check.mjs`, push, say what changed. The band refreshes the PR after the session's `git push`.
   - `close PR` (hotkey x): asks first; the yes runs `/pr close`, `gh pr close <n>`. The one button that throws work away.
 
@@ -51,7 +55,7 @@ hermes-pr/
   README.md                       this file
 ```
 
-In hermes-band: `types/index.d.ts` (the `PullRequest` and `PrLine` copies, the read-only `'hermes-pr'` state, `confirmPr`), `hooks/register.tsx` (the PR row, the buttons, `submitPr`, `submitFix`), `hooks/band.test.tsx` (the PR tests).
+In hermes-band: `types/index.d.ts` (the `PullRequest` and `PrLine` copies, the read-only `'hermes-pr'` state, `confirmPr`, `dismissedPr`), `hooks/register.tsx` (the PR band, its buttons, `submitPr`, `submitFix`), `hooks/band.test.tsx` (the PR tests).
 
 Pure, exported and tested on their own: `parsePr(json)` (the `gh pr view` JSON to the record), `ciOf(rollup)` (the CI state and the failing names), `jobIdOf(detailsUrl)`, `siblingsOf(exitCode, stdout, stderr)`, `statusLines(view)` (the five chips as `{ ok, text, detail }`), `isGreen(view)`, `fixPrompt(view)`.
 
