@@ -11,7 +11,7 @@ const HANDS_OFF: readonly RegExp[] = [
   /apps\/api\/src\/modules\/stock\/(adjustStock|allocateStock|warehouseMath|stockLock|stockEffects|warehouses|math)\.ts$/,
   /apps\/api\/src\/modules\/stock\/sync\/emagSync\.ts$/,
   /apps\/api\/src\/modules\/catalog\/import\/importProducts\.ts$/,
-  /apps\/api\/src\/modules\/listings\/listings\.ts$/,
+  /apps\/api\/src\/modules\/listings\/(listings|loaders|drafts|approvalEffects|generate|edit|delist)\.ts$/,
   /apps\/api\/src\/systems\/billing-ledger\/billing\.ts$/,
 ]
 const isHandsOff = (file: string) => HANDS_OFF.some(r => r.test(file))

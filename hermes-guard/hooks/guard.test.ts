@@ -83,6 +83,25 @@ test('a hands-off path is refused until /guard unlock', async ($, on) => {
   expect((await $.tool.call(edit)).deny).toMatch(/hands-off/)
 })
 
+test('the files split out of listings.ts are hands-off too, the rest of the module is not', async ($, on) => {
+  mock.store(on)
+  on('session.id', () => ({ value: 'test-session' }))
+  on('session.cwd', () => ({ value: 'D:/Projects/HERMES' }))
+  on('tool.call', { tool: 'Edit' }, () => ({ result: {} as never }))
+  const editOf = (name: string) => ({
+    tool: 'Edit' as const,
+    file_path: `D:\\Projects\\HERMES\\apps\\api\\src\\modules\\listings\\${name}.ts`,
+    old_string: 'a',
+    new_string: 'b',
+  })
+  for (const name of ['listings', 'loaders', 'drafts', 'approvalEffects', 'generate', 'edit', 'delist']) {
+    expect((await $.tool.call(editOf(name))).deny).toMatch(/hands-off/)
+  }
+  for (const name of ['errors', 'routes', 'generateJob']) {
+    expect((await $.tool.call(editOf(name))).deny).toBeUndefined()
+  }
+})
+
 test('an Agent call without a model gets sonnet; Plan gets opus; fork, a savvy tier and an explicit model are left alone', async ($, on) => {
   const seen: Array<string | undefined> = []
   on('tool.call', { tool: 'Agent' }, (_$, e) => {
